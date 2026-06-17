@@ -271,3 +271,17 @@ Lista temporadas com dados da view `vw_show_seasons_data`.
 | `serie_title` | string | Busca parcial no título da série|
 
 **Exemplo:** `GET /api/v1/views/seasons?serie_title=arcane`
+
+## Como Executar o Frontend Localmente
+
+Navegue até a pasta do seu frontend no terminal e escolha uma das opções abaixo para iniciar o servidor:
+
+```bash
+# Opção 1: Usando Python
+python3 -m http.server 5500
+
+# OU
+
+# Opção 2: Usando live-server (Node/NPM)
+npm install -g live-server
+live-server --port=5500
