@@ -1,8 +1,10 @@
 # Dependências do Node (Geradas pelo npm install)
 node_modules/
+**/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # Variáveis de ambiente e credenciais (Contém senhas do seu Postgres)
 .env
@@ -12,12 +14,53 @@ yarn-error.log*
 .env.production.local
 
 # Logs do sistema e do Nodemon
-logs
+logs/
 *.log
 .nodemonignore
 
+# Uploads (conteúdo gerado pelo usuário)
+/uploads/
+api/uploads/
+uploads/
+uploads/**
+
+# Build outputs
+dist/
+build/
+tmp/
+temp/
+.cache/
+.parcel-cache/
+.next/
+
+# Coverage
+coverage/
+**/coverage/
+.nyc_output/
+
+# Tests
+__tests__/
+**/__tests__/
+*.test.js
+*.test.jsx
+*.test.ts
+*.test.tsx
+*.spec.js
+*.spec.jsx
+*.spec.ts
+*.spec.tsx
+test-results/
+test-output/
+.jest/
+jest-cache/
+npm-test-results.xml
+test-coverage/
+.vitest/
+vitest-results.xml
+
 # Arquivos do Sistema Operacional / IDEs
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
 *.suo
@@ -25,4 +68,20 @@ logs
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets and keys
+*.pem
+*.key
+*.p12
+*.csr
+
+# Misc
+*.tgz
+*.gz
+Desktop.ini
+yarn-error.log*
+
+# Pastas específicas
+/api/node_modules/
+/spa/node_modules/
 

@@ -32,6 +32,7 @@ http://localhost:3000/api/v1
 ## 👤 Usuários
 
 ### `POST /users/register`
+
 Registra um usuário e seu dispositivo.
 
 ```json
@@ -48,6 +49,7 @@ Registra um usuário e seu dispositivo.
 ---
 
 ### `POST /users/subscribe`
+
 Assina um plano para um usuário.
 
 ```json
@@ -64,6 +66,7 @@ Assina um plano para um usuário.
 ## 🎭 Pessoas
 
 ### `POST /people/directors`
+
 Cadastra um único diretor.
 
 ```json
@@ -80,13 +83,24 @@ Cadastra um único diretor.
 ---
 
 ### `POST /people/actors`
+
 Cadastra um array de atores.
 
 ```json
 {
   "actors": [
-    { "first_name": "Bianca", "last_name": "Moura", "nationality": "Brasileira", "birth": "1990-01-14" },
-    { "first_name": "Caio",   "last_name": "Ribeiro","nationality": "Brasileira", "birth": "1988-06-30" }
+    {
+      "first_name": "Bianca",
+      "last_name": "Moura",
+      "nationality": "Brasileira",
+      "birth": "1990-01-14"
+    },
+    {
+      "first_name": "Caio",
+      "last_name": "Ribeiro",
+      "nationality": "Brasileira",
+      "birth": "1988-06-30"
+    }
   ]
 }
 ```
@@ -96,7 +110,9 @@ Cadastra um array de atores.
 ## 🎬 Catálogo
 
 ### `POST /catalog/movies`
+
 Insere um filme.
+Envie os campos como `multipart/form-data` e inclua o arquivo de vídeo no campo `media`.
 
 ```json
 {
@@ -114,6 +130,7 @@ Insere um filme.
 ---
 
 ### `POST /catalog/series`
+
 Insere uma série.
 
 ```json
@@ -129,7 +146,9 @@ Insere uma série.
 ---
 
 ### `POST /catalog/episodes`
+
 Insere um episódio (cria série/temporada automaticamente se necessário).
+Envie os campos como `multipart/form-data` e inclua o arquivo de vídeo no campo `media`.
 
 ```json
 {
@@ -149,6 +168,7 @@ Insere um episódio (cria série/temporada automaticamente se necessário).
 ---
 
 ### `POST /catalog/genres`
+
 Vincula gêneros a um filme ou série.
 
 ```json
@@ -162,6 +182,7 @@ Vincula gêneros a um filme ou série.
 ---
 
 ### `POST /catalog/cast`
+
 Vincula elenco a um filme ou episódio.
 
 ```json
@@ -176,6 +197,7 @@ Vincula elenco a um filme ou episódio.
 ---
 
 ### `POST /catalog/directors`
+
 Vincula diretores a um filme ou episódio já existente.
 
 ```json
@@ -191,6 +213,7 @@ Vincula diretores a um filme ou episódio já existente.
 ## ⭐ Reviews
 
 ### `POST /reviews`
+
 Cria uma review para um filme ou episódio (apenas um por vez).
 
 ```json
@@ -207,6 +230,7 @@ Cria uma review para um filme ou episódio (apenas um por vez).
 ## ❤️ Favoritos
 
 ### `POST /favorites`
+
 Adiciona um item aos favoritos do usuário.
 
 ```json
@@ -216,6 +240,7 @@ Adiciona um item aos favoritos do usuário.
 ---
 
 ### `DELETE /favorites`
+
 Remove um item dos favoritos do usuário.
 
 ```json
@@ -227,6 +252,7 @@ Remove um item dos favoritos do usuário.
 ## 📺 Histórico de Visualização
 
 ### `POST /history`
+
 Registra ou atualiza o progresso de visualização.
 
 ```json
@@ -243,20 +269,22 @@ Registra ou atualiza o progresso de visualização.
 ## 🔍 Views (Consultas)
 
 ### `GET /views/movies`
+
 Lista filmes com dados da view `vw_show_movies_data`.
 
-| Query param   | Tipo   | Descrição                  |
-|---------------|--------|----------------------------|
-| `title`       | string | Busca parcial no título    |
-| `rating_min`  | number | Nota mínima                |
-| `rating_max`  | number | Nota máxima                |
-| `release_year`| number | Ano de lançamento exato    |
+| Query param    | Tipo   | Descrição               |
+| -------------- | ------ | ----------------------- |
+| `title`        | string | Busca parcial no título |
+| `rating_min`   | number | Nota mínima             |
+| `rating_max`   | number | Nota máxima             |
+| `release_year` | number | Ano de lançamento exato |
 
 **Exemplo:** `GET /api/v1/views/movies?title=aurora&rating_min=4`
 
 ---
 
 ### `GET /views/series`
+
 Lista séries com dados da view `vw_show_series_data`.
 
 Mesmos query params de `/views/movies`.
@@ -264,10 +292,11 @@ Mesmos query params de `/views/movies`.
 ---
 
 ### `GET /views/seasons`
+
 Lista temporadas com dados da view `vw_show_seasons_data`.
 
-| Query param   | Tipo   | Descrição                       |
-|---------------|--------|---------------------------------|
-| `serie_title` | string | Busca parcial no título da série|
+| Query param   | Tipo   | Descrição                        |
+| ------------- | ------ | -------------------------------- |
+| `serie_title` | string | Busca parcial no título da série |
 
 **Exemplo:** `GET /api/v1/views/seasons?serie_title=arcane`
