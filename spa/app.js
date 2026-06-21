@@ -54,7 +54,7 @@ function showMovies() {
     const query = buildQuery("movies");
     const res = await fetch(`${API_BASE}/views/movies${query}`);
     const data = await safeJson(res);
-    return renderCards(data || [], "movies");
+    return renderCards(data.data || [], "movies");
   });
 }
 
@@ -64,7 +64,7 @@ function showSeries() {
     const query = buildQuery("series");
     const res = await fetch(`${API_BASE}/views/series${query}`);
     const data = await safeJson(res);
-    return renderCards(data || [], "series");
+    return renderCards(data.data || [], "series");
   });
 }
 
@@ -74,7 +74,7 @@ function showSeasons() {
     const query = buildQuery("seasons");
     const res = await fetch(`${API_BASE}/views/seasons${query}`);
     const data = await safeJson(res);
-    return renderSeasonCards(data || []);
+    return renderSeasonCards(data.data || []);
   });
 }
 
@@ -346,9 +346,27 @@ async function showAddMoviePage() {
         { id: "release_year", label: "Ano de lançamento", type: "number" },
         { id: "duration", label: "Duração (min)", type: "number" },
         {
+          id: "content_rating",
+          type: "select",
+          label: "Classificação Indicativa",
+          options: [
+            { value: 1, label: "Livre para todos os públicos." },
+            { value: 2, label: "Não recomendado para menores de 10 anos." },
+            { value: 3, label: "Não recomendado para menores de 12 anos." },
+            { value: 4, label: "Não recomendado para menores de 14 anos." },
+            { value: 5, label: "Não recomendado para menores de 16 anos." },
+            { value: 6, label: "Não recomendado para menores de 18 anos." }
+          ]
+        },
+        {
           id: "directors",
           label: "IDs de diretores (vírgula)",
           placeholder: "1,2",
+        },
+        {
+          id: "synopsis",
+          label: "Sinopse",
+          type: "textarea"
         },
         {
           id: "media",
@@ -366,6 +384,7 @@ async function showAddMoviePage() {
           .split(",")
           .map((v) => v.trim())
           .filter(Boolean);
+        const synopsis = inputs.synopsis.value.trim()
         const media = inputs.media.files[0];
 
         if (
@@ -373,7 +392,8 @@ async function showAddMoviePage() {
           !release_year ||
           !duration ||
           directors.length === 0 ||
-          !media
+          !media ||
+          !synopsis
         ) {
           throw new Error(
             "Preencha todos os campos obrigatórios e envie mídia.",
@@ -386,6 +406,7 @@ async function showAddMoviePage() {
         body.append("duration", duration);
         body.append("content_rating_id", "1");
         directors.forEach((id) => body.append("directors_id", id));
+        body.append("synopsis", synopsis)
         body.append("media", media);
 
         console.log(body);
@@ -717,7 +738,7 @@ async function showAddReviewPage() {
     ),
   );
 }
-
+/*
 async function showAddFavoritePage() {
   renderSection("Adicionar Favorito", () =>
     renderForm(
@@ -864,7 +885,7 @@ async function showAddHistoryPage() {
     ),
   );
 }
-
+*/
 async function showRegisterUserPage() {
   renderSection("Registrar Usuário", () =>
     renderForm(

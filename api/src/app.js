@@ -2,9 +2,17 @@ require('dotenv').config();
 
 const express = require('express');
 const routes  = require('./routes');
+const cors    = require('cors')
 
 const app = express();
 
+const corsOptions = {
+    origin: 'http://localhost:5500', // Libera exatamente a porta do seu front-end
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions))
 app.use(express.json());
 
 // Prefixo geral da API
