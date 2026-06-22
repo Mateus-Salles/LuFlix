@@ -1,5 +1,8 @@
+const fs = require("fs");
 const path = require("path");
 const pool = require("../db");
+const { exec } = require("child_process");
+const { setMediaPath } = require("../utils/manifest");
 
 function getRelativeMediaPath(filePath) {
   if (!filePath) return null;
@@ -58,6 +61,7 @@ async function insertMovie(req, res) {
     title,
     synopsis,
     duration,
+    media_path,
   } = req.body;
 
   const directors_id = normalizeIds(rawDirectorsId).map(Number);
@@ -86,14 +90,30 @@ async function insertMovie(req, res) {
     );
   }
 
-  if (!req.file) {
+  if (!req.file && !media_path) {
     return badRequest(
       res,
-      'Arquivo de mídia obrigatório: envie o campo "media".',
+      'Arquivo de mídia obrigatório: envie o campo "media" ou envie "media_path".',
     );
   }
 
   try {
+    if (req.file) {
+      const originalPath = req.file.path;
+      const ext = path.extname(originalPath);
+      const outputDirName = `${path.basename(originalPath, ext)}-hls`;
+      const outputDir = path.join(path.dirname(originalPath), outputDirName);
+      const playlistPath = path.join(outputDir, "index.m3u8");
+      console.log(`[Movie] Convertendo arquivo enviado diretamente para HLS: ${originalPath}`);
+      await convertToHLS(originalPath, playlistPath);
+      try {
+        fs.unlinkSync(originalPath);
+      } catch (e) {
+        console.warn(`[Movie] Erro ao deletar arquivo temporário original:`, e.message);
+      }
+      req.file.path = playlistPath;
+    }
+
     await pool.query(
       `CALL pr_insert_movie_or_serie(
         p_type              => 'movie',
@@ -118,7 +138,20 @@ async function insertMovie(req, res) {
       ],
     );
 
-    const mediaPath = getRelativeMediaPath(req.file?.path);
+    const mediaPath = req.file ? getRelativeMediaPath(req.file.path) : media_path;
+    
+    if (mediaPath) {
+      try {
+        const movieResult = await pool.query('SELECT movie_id FROM movies WHERE title = $1', [title]);
+        const insertedId = movieResult.rows[0]?.movie_id;
+        if (insertedId) {
+          setMediaPath('movies', insertedId, mediaPath);
+        }
+      } catch (errDb) {
+        console.error("Erro ao persistir media_path no manifesto de filme:", errDb.message);
+      }
+    }
+
     const response = { message: `Filme "${title}" inserido com sucesso.` };
     if (mediaPath) response.media_path = mediaPath;
 
@@ -158,13 +191,38 @@ async function updateMovie(req, res) {
       values.push(req.body[k]);
     }
   }
-  if (fields.length === 0)
+  if (fields.length === 0 && !req.file && !req.body.media_path)
     return badRequest(res, "Nenhum campo para atualizar.");
-  values.push(movie_id);
-  const sql = `UPDATE movies SET ${fields.join(", ")} WHERE movie_id = $${idx}`;
+  
   try {
-    await pool.query(sql, values);
-    const mediaPath = getRelativeMediaPath(req.file?.path);
+    if (fields.length > 0) {
+      values.push(movie_id);
+      const sql = `UPDATE movies SET ${fields.join(", ")} WHERE movie_id = $${idx}`;
+      await pool.query(sql, values);
+    }
+    
+    if (req.file) {
+      const originalPath = req.file.path;
+      const ext = path.extname(originalPath);
+      const outputDirName = `${path.basename(originalPath, ext)}-hls`;
+      const outputDir = path.join(path.dirname(originalPath), outputDirName);
+      const playlistPath = path.join(outputDir, "index.m3u8");
+      console.log(`[Movie Update] Convertendo arquivo enviado diretamente para HLS: ${originalPath}`);
+      await convertToHLS(originalPath, playlistPath);
+      try {
+        fs.unlinkSync(originalPath);
+      } catch (e) {
+        console.warn(`[Movie Update] Erro ao deletar arquivo temporário original:`, e.message);
+      }
+      req.file.path = playlistPath;
+    }
+
+    const mediaPath = req.file ? getRelativeMediaPath(req.file.path) : req.body.media_path;
+    
+    if (mediaPath) {
+      setMediaPath('movies', movie_id, mediaPath);
+    }
+
     const response = { message: "Filme atualizado com sucesso." };
     if (mediaPath) response.media_path = mediaPath;
     return res.status(200).json(response);
@@ -305,13 +363,38 @@ async function updateEpisode(req, res) {
       values.push(req.body[k]);
     }
   }
-  if (fields.length === 0)
+  if (fields.length === 0 && !req.file && !req.body.media_path)
     return badRequest(res, "Nenhum campo para atualizar.");
-  values.push(episode_id);
-  const sql = `UPDATE episodes SET ${fields.join(", ")} WHERE episode_id = $${idx}`;
+  
   try {
-    await pool.query(sql, values);
-    const mediaPath = getRelativeMediaPath(req.file?.path);
+    if (fields.length > 0) {
+      values.push(episode_id);
+      const sql = `UPDATE episodes SET ${fields.join(", ")} WHERE episode_id = $${idx}`;
+      await pool.query(sql, values);
+    }
+    
+    if (req.file) {
+      const originalPath = req.file.path;
+      const ext = path.extname(originalPath);
+      const outputDirName = `${path.basename(originalPath, ext)}-hls`;
+      const outputDir = path.join(path.dirname(originalPath), outputDirName);
+      const playlistPath = path.join(outputDir, "index.m3u8");
+      console.log(`[Episode Update] Convertendo arquivo enviado diretamente para HLS: ${originalPath}`);
+      await convertToHLS(originalPath, playlistPath);
+      try {
+        fs.unlinkSync(originalPath);
+      } catch (e) {
+        console.warn(`[Episode Update] Erro ao deletar arquivo temporário original:`, e.message);
+      }
+      req.file.path = playlistPath;
+    }
+
+    const mediaPath = req.file ? getRelativeMediaPath(req.file.path) : req.body.media_path;
+    
+    if (mediaPath) {
+      setMediaPath('episodes', episode_id, mediaPath);
+    }
+
     const response = { message: "Episódio atualizado com sucesso." };
     if (mediaPath) response.media_path = mediaPath;
     return res.status(200).json(response);
@@ -429,6 +512,7 @@ async function insertEpisode(req, res) {
     serie_title = null,
     serie_synopsis = null,
     season_number,
+    media_path,
   } = req.body;
 
   const directors_id = normalizeIds(rawDirectorsId).map(Number);
@@ -461,10 +545,10 @@ async function insertEpisode(req, res) {
     );
   }
 
-  if (!req.file) {
+  if (!req.file && !media_path) {
     return badRequest(
       res,
-      'Arquivo de mídia obrigatório: envie o campo "media".',
+      'Arquivo de mídia obrigatório: envie o campo "media" ou envie "media_path".',
     );
   }
 
@@ -483,6 +567,22 @@ async function insertEpisode(req, res) {
   }
 
   try {
+    if (req.file) {
+      const originalPath = req.file.path;
+      const ext = path.extname(originalPath);
+      const outputDirName = `${path.basename(originalPath, ext)}-hls`;
+      const outputDir = path.join(path.dirname(originalPath), outputDirName);
+      const playlistPath = path.join(outputDir, "index.m3u8");
+      console.log(`[Episode] Convertendo arquivo enviado diretamente para HLS: ${originalPath}`);
+      await convertToHLS(originalPath, playlistPath);
+      try {
+        fs.unlinkSync(originalPath);
+      } catch (e) {
+        console.warn(`[Episode] Erro ao deletar arquivo temporário original:`, e.message);
+      }
+      req.file.path = playlistPath;
+    }
+
     await pool.query(
       `CALL pr_insert_movie_or_serie(
         p_type              => 'episode',
@@ -515,7 +615,23 @@ async function insertEpisode(req, res) {
       ],
     );
 
-    const mediaPath = getRelativeMediaPath(req.file?.path);
+    const mediaPath = req.file ? getRelativeMediaPath(req.file.path) : media_path;
+    
+    if (mediaPath) {
+      try {
+        const epResult = await pool.query(
+          'SELECT episode_id FROM episodes WHERE title = $1 ORDER BY episode_id DESC LIMIT 1',
+          [episode_title]
+        );
+        const insertedId = epResult.rows[0]?.episode_id;
+        if (insertedId) {
+          setMediaPath('episodes', insertedId, mediaPath);
+        }
+      } catch (errDb) {
+        console.error("Erro ao persistir media_path no manifesto de episódio:", errDb.message);
+      }
+    }
+
     const response = {
       message: `Episódio "${episode_title}" inserido com sucesso.`,
     };
@@ -678,6 +794,169 @@ async function insertContentDirectors(req, res) {
   }
 }
 
+function getFFmpegPath() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\mateu', 'AppData', 'Local');
+  const wingetPackagesDir = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages');
+  
+  if (fs.existsSync(wingetPackagesDir)) {
+    try {
+      const packages = fs.readdirSync(wingetPackagesDir);
+      for (const pkg of packages) {
+        if (pkg.includes('Gyan.FFmpeg')) {
+          const pkgPath = path.join(wingetPackagesDir, pkg);
+          const subdirs = fs.readdirSync(pkgPath);
+          for (const subdir of subdirs) {
+            if (subdir.startsWith('ffmpeg-')) {
+              const ffmpegExe = path.join(pkgPath, subdir, 'bin', 'ffmpeg.exe');
+              if (fs.existsSync(ffmpegExe)) {
+                return `"${ffmpegExe}"`;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Erro ao buscar ffmpeg nas pastas do WinGet:", e.message);
+    }
+  }
+  return 'ffmpeg';
+}
+
+function convertToHLS(inputPath, outputPlaylistPath) {
+  return new Promise((resolve, reject) => {
+    const ffmpeg = getFFmpegPath();
+    const outputDir = path.dirname(outputPlaylistPath);
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    const segmentFilename = path.join(outputDir, "segment_%03d.ts").replace(/\\/g, "/");
+    const safeOutputPlaylistPath = outputPlaylistPath.replace(/\\/g, "/");
+    const safeInputPath = inputPath.replace(/\\/g, "/");
+
+    const cmdNvenc = `${ffmpeg} -y -i "${safeInputPath}" -c:v hevc_nvenc -preset fast -c:a aac -hls_time 10 -hls_playlist_type vod -hls_segment_filename "${segmentFilename}" "${safeOutputPlaylistPath}"`;
+    console.log(`[FFmpeg] Executando conversão HLS NVENC: ${cmdNvenc}`);
+    
+    exec(cmdNvenc, (err, stdout, stderr) => {
+      if (err) {
+        console.warn(`[FFmpeg] HLS NVENC falhou, realizando fallback para CPU. Detalhe:`, err.message);
+        const cmdCpu = `${ffmpeg} -y -i "${safeInputPath}" -c:v libx265 -preset ultrafast -c:a aac -hls_time 10 -hls_playlist_type vod -hls_segment_filename "${segmentFilename}" "${safeOutputPlaylistPath}"`;
+        console.log(`[FFmpeg] Executando conversão HLS CPU: ${cmdCpu}`);
+        
+        exec(cmdCpu, (errCpu, stdoutCpu, stderrCpu) => {
+          if (errCpu) {
+            console.error(`[FFmpeg] Conversão HLS CPU também falhou. Erro:`, errCpu.message);
+            reject(errCpu);
+          } else {
+            console.log(`[FFmpeg] Conversão HLS CPU finalizada com sucesso.`);
+            resolve();
+          }
+        });
+      } else {
+        console.log(`[FFmpeg] Conversão HLS NVENC finalizada com sucesso.`);
+        resolve();
+      }
+    });
+  });
+}
+
+// Wrapper for backwards compatibility
+function compressVideo(inputPath, outputPath) {
+  let finalPlaylistPath = outputPath;
+  if (outputPath.endsWith(".mp4")) {
+    const ext = path.extname(outputPath);
+    const outputDirName = `${path.basename(outputPath, ext)}-hls`;
+    const outputDir = path.join(path.dirname(outputPath), outputDirName);
+    finalPlaylistPath = path.join(outputDir, "index.m3u8");
+  }
+  return convertToHLS(inputPath, finalPlaylistPath);
+}
+
+async function handleUploadChunk(req, res) {
+  const { uploadId, chunkIndex, totalChunks, filename, type } = req.body;
+
+  if (!uploadId || chunkIndex === undefined || !totalChunks || !filename) {
+    return res.status(400).json({ error: "Parâmetros de fatia ausentes (uploadId, chunkIndex, totalChunks, filename)." });
+  }
+
+  const chunkIdx = Number(chunkIndex);
+  const total = Number(totalChunks);
+
+  try {
+    const chunkUploadDir = path.resolve(__dirname, "../../uploads/chunks");
+    
+    const allChunksPresent = [];
+    for (let i = 0; i < total; i++) {
+      const chunkPath = path.join(chunkUploadDir, `${uploadId}_${i}`);
+      if (fs.existsSync(chunkPath)) {
+        allChunksPresent.push(chunkPath);
+      }
+    }
+
+    if (allChunksPresent.length === total) {
+      const contentType = type === "episodes" ? "episodes" : "movies";
+      const destDir = path.resolve(__dirname, `../../uploads/${contentType}`);
+      
+      const ext = path.extname(filename) || ".mp4";
+      const finalFileName = `${Date.now()}-${uploadId}`;
+      const tempMergedPath = path.join(destDir, `temp-${finalFileName}${ext}`);
+      
+      const outputDirName = `${finalFileName}-hls`;
+      const outputDir = path.join(destDir, outputDirName);
+      const finalPlaylistPath = path.join(outputDir, "index.m3u8");
+
+      console.log(`[Upload] Iniciando junção de ${total} fatias para o arquivo: ${tempMergedPath}`);
+      
+      const writeStream = fs.createWriteStream(tempMergedPath);
+      for (const chunkPath of allChunksPresent) {
+        const data = fs.readFileSync(chunkPath);
+        writeStream.write(data);
+      }
+      writeStream.end();
+
+      await new Promise((resolve, reject) => {
+        writeStream.on("finish", resolve);
+        writeStream.on("error", reject);
+      });
+
+      console.log(`[Upload] Junção concluída. Excluindo fatias temporárias...`);
+      for (const chunkPath of allChunksPresent) {
+        try {
+          fs.unlinkSync(chunkPath);
+        } catch (e) {
+          console.warn(`[Upload] Não foi possível excluir a fatia ${chunkPath}:`, e.message);
+        }
+      }
+
+      console.log(`[Upload] Iniciando conversão HLS...`);
+      await convertToHLS(tempMergedPath, finalPlaylistPath);
+
+      try {
+        if (fs.existsSync(tempMergedPath)) {
+          fs.unlinkSync(tempMergedPath);
+        }
+      } catch (e) {
+        console.warn(`[Upload] Não foi possível excluir o temporário de merge ${tempMergedPath}:`, e.message);
+      }
+
+      const media_path = getRelativeMediaPath(finalPlaylistPath);
+      console.log(`[Upload] Processamento concluído com sucesso. Media Path: ${media_path}`);
+      
+      return res.status(200).json({
+        status: "completed",
+        media_path
+      });
+    }
+
+    return res.status(200).json({
+      status: "chunk_uploaded",
+      chunkIndex: chunkIdx
+    });
+  } catch (err) {
+    console.error("Erro no processamento da fatia:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   insertMovie,
   insertSerie,
@@ -691,4 +970,7 @@ module.exports = {
   deleteSerie,
   updateEpisode,
   deleteEpisode,
+  handleUploadChunk,
+  compressVideo, // also export for use in main controllers
+  convertToHLS,
 };

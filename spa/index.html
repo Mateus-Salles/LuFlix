@@ -1,29 +1,34 @@
 <!doctype html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>LuFlix Admin</title>
-    <link rel="stylesheet" href="style.css">
-  </head>
-  <body>
-    <header class="site-header">
-      <div class="brand">LuFlix</div>
-      <nav class="main-nav">
-        <a href="#movies" id="nav-movies">Filmes</a>
-        <a href="#series" id="nav-series">Séries</a>
-        <a href="#seasons" id="nav-seasons">Temporadas</a>
-        <a href="#actions" id="nav-actions">Ações</a>
-      </nav>
-      <div class="search-wrap">
-        <input id="search" placeholder="Pesquisar títulos...">
-      </div>
-    </header>
 
-    <main id="app" class="container">
-      <!-- SPA content injected here -->
-    </main>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LuFlix Admin</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/UAParser.js/1.0.37/ua-parser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+</head>
 
-    <script src="app.js" type="module"></script>
-  </body>
+<body>
+  <header class="site-header">
+    <div class="brand">LuFlix</div>
+    <nav class="main-nav">
+      <a href="#movies" id="nav-movies">Filmes</a>
+      <a href="#series" id="nav-series">Séries</a>
+      <a href="#actions" id="nav-actions">Ações</a>
+    </nav>
+    <div class="search-wrap">
+      <input id="search" placeholder="Pesquisar títulos...">
+    </div>
+    <div id="user-status" class="user-status"></div>
+  </header>
+
+  <main id="app" class="container">
+    <!-- SPA content injected here -->
+  </main>
+
+  <script src="app.js" type="module"></script>
+</body>
+
 </html>

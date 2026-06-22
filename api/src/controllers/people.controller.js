@@ -67,4 +67,117 @@ async function insertActors(req, res) {
   }
 }
 
-module.exports = { insertDirector, insertActors };
+async function getDirectors(req, res) {
+  try {
+    const { id } = req.query;
+    let query = 'SELECT * FROM directors';
+    const params = [];
+    if (id) {
+      query += ' WHERE director_id = $1';
+      params.push(Number(id));
+    }
+    query += ' ORDER BY first_name, last_name';
+    const result = await pool.query(query, params);
+    return res.status(200).json({ data: result.rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+async function getActors(req, res) {
+  try {
+    const { id } = req.query;
+    let query = 'SELECT * FROM actors';
+    const params = [];
+    if (id) {
+      query += ' WHERE actor_id = $1';
+      params.push(Number(id));
+    }
+    query += ' ORDER BY first_name, last_name';
+    const result = await pool.query(query, params);
+    return res.status(200).json({ data: result.rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+async function updateDirector(req, res) {
+  const { id } = req.params;
+  const { first_name, last_name, nationality, birth } = req.body;
+  if (!first_name || !last_name || !nationality) {
+    return res.status(400).json({ error: 'Campos obrigatórios: first_name, last_name, nationality.' });
+  }
+  try {
+    await pool.query(
+      'UPDATE directors SET first_name = $1, last_name = $2, nationality = $3, birth = $4 WHERE director_id = $5',
+      [first_name, last_name, nationality, birth || null, Number(id)]
+    );
+    return res.status(200).json({ message: 'Diretor atualizado com sucesso.' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+async function updateActor(req, res) {
+  const { id } = req.params;
+  const { first_name, last_name, nationality, birth } = req.body;
+  if (!first_name || !last_name || !nationality || !birth) {
+    return res.status(400).json({ error: 'Campos obrigatórios: first_name, last_name, nationality, birth.' });
+  }
+  try {
+    await pool.query(
+      'UPDATE actors SET first_name = $1, last_name = $2, nationality = $3, birth = $4 WHERE actor_id = $5',
+      [first_name, last_name, nationality, birth, Number(id)]
+    );
+    return res.status(200).json({ message: 'Ator atualizado com sucesso.' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+async function deleteDirector(req, res) {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM directors_movies WHERE director_id = $1', [Number(id)]);
+    await client.query('DELETE FROM directors_episodes WHERE director_id = $1', [Number(id)]);
+    await client.query('DELETE FROM directors WHERE director_id = $1', [Number(id)]);
+    await client.query('COMMIT');
+    return res.status(200).json({ message: 'Diretor removido com sucesso.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+async function deleteActor(req, res) {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM movie_cast WHERE actor_id = $1', [Number(id)]);
+    await client.query('DELETE FROM episode_cast WHERE actor_id = $1', [Number(id)]);
+    await client.query('DELETE FROM actors WHERE actor_id = $1', [Number(id)]);
+    await client.query('COMMIT');
+    return res.status(200).json({ message: 'Ator removido com sucesso.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = {
+  insertDirector,
+  insertActors,
+  getDirectors,
+  getActors,
+  updateDirector,
+  deleteDirector,
+  updateActor,
+  deleteActor
+};

@@ -12,16 +12,19 @@ const {
   deleteSerie,
   updateEpisode,
   deleteEpisode,
+  handleUploadChunk,
 } = require("../controllers/catalog.controller");
 const {
   uploadMovie,
   uploadEpisode,
+  uploadChunk,
   optionalUpload,
 } = require("../middleware/upload");
 
 const router = Router();
 
 // Conteúdo
+router.post("/upload-chunk", uploadChunk, handleUploadChunk);
 router.post("/movies", uploadMovie, insertMovie);
 router.post("/series", insertSerie);
 router.post("/episodes", uploadEpisode, insertEpisode);

@@ -5,8 +5,9 @@ const multer = require("multer");
 const uploadRoot = path.resolve(__dirname, "../../uploads");
 const movieUploadDir = path.join(uploadRoot, "movies");
 const episodeUploadDir = path.join(uploadRoot, "episodes");
+const chunkUploadDir = path.join(uploadRoot, "chunks");
 
-for (const dir of [uploadRoot, movieUploadDir, episodeUploadDir]) {
+for (const dir of [uploadRoot, movieUploadDir, episodeUploadDir, chunkUploadDir]) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -52,8 +53,19 @@ const uploadEpisode = multer({
   fileFilter: mediaFileFilter,
 }).single("media");
 
+const uploadChunk = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, chunkUploadDir),
+    filename: (req, file, cb) => {
+      const { uploadId, chunkIndex } = req.body;
+      cb(null, `${uploadId}_${chunkIndex}`);
+    },
+  }),
+}).single("media");
+
 module.exports = {
   uploadMovie,
   uploadEpisode,
+  uploadChunk,
   optionalUpload,
 };

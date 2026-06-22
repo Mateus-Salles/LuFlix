@@ -1,44 +1,137 @@
 const API_BASE = "http://127.0.0.1:3000/api/v1";
+const API_ORIGIN = "http://127.0.0.1:3000";
+const USER_STORAGE_KEY = "luflix_current_user";
 
 const routes = {
   "": showMovies,
   "#movies": showMovies,
   "#series": showSeries,
-  "#seasons": showSeasons,
-  "#actions": showActions,
-  "#actions/add-movie": showAddMoviePage,
-  "#actions/add-serie": showAddSeriePage,
-  "#actions/add-episode": showAddEpisodePage,
-  "#actions/add-genre": showAddGenrePage,
-  "#actions/add-cast": showAddCastPage,
-  "#actions/add-directors": showAddDirectorsPage,
-  "#actions/add-review": showAddReviewPage,
-  "#actions/add-favorite": showAddFavoritePage,
-  "#actions/remove-favorite": showRemoveFavoritePage,
-  "#actions/add-history": showAddHistoryPage,
+  "#series/view": showSeriesViewPage,
+  "#episodes": () => { location.hash = "#series"; },
+  "#seasons": () => { location.hash = "#series"; },
+  "#actions": () => { location.hash = "#actions/add"; },
+  "#actions/add": showActionsPage,
+  "#actions/edit": showActionsPage,
+  "#actions/delete": showActionsPage,
   "#actions/register-user": showRegisterUserPage,
+  "#actions/login": showLoginPage,
   "#actions/subscribe-user": showSubscribeUserPage,
-  "#actions/add-director-person": showAddDirectorPersonPage,
-  "#actions/add-actors-person": showAddActorsPersonPage,
-  "#actions/edit-movie": showEditMoviePage,
-  "#actions/delete-movie": showDeleteMoviePage,
-  "#actions/edit-serie": showEditSeriePage,
-  "#actions/delete-serie": showDeleteSeriePage,
-  "#actions/edit-episode": showEditEpisodePage,
-  "#actions/delete-episode": showDeleteEpisodePage,
+  "#actions/add-movie": () => { location.hash = "#actions/add"; },
+  "#actions/add-serie": () => { location.hash = "#actions/add"; },
+  "#actions/add-episode": () => { location.hash = "#actions/add"; },
+  "#actions/add-genre": () => { location.hash = "#actions/add"; },
+  "#actions/add-cast": () => { location.hash = "#actions/add"; },
+  "#actions/add-directors": () => { location.hash = "#actions/add"; },
+  "#actions/add-review": () => { location.hash = "#actions/add"; },
+  "#actions/add-director-person": () => { location.hash = "#actions/add"; },
+  "#actions/add-actors-person": () => { location.hash = "#actions/add"; },
+  "#actions/edit-movie": () => { location.hash = "#actions/edit"; },
+  "#actions/edit-movies": () => { location.hash = "#actions/edit"; },
+  "#actions/delete-movie": () => { location.hash = "#actions/delete"; },
+  "#actions/delete-movies": () => { location.hash = "#actions/delete"; },
+  "#actions/edit-serie": () => { location.hash = "#actions/edit"; },
+  "#actions/edit-series": () => { location.hash = "#actions/edit"; },
+  "#actions/delete-serie": () => { location.hash = "#actions/delete"; },
+  "#actions/delete-series": () => { location.hash = "#actions/delete"; },
+  "#actions/edit-episode": () => { location.hash = "#actions/edit"; },
+  "#actions/edit-episodes": () => { location.hash = "#actions/edit"; },
+  "#actions/delete-episode": () => { location.hash = "#actions/delete"; },
+  "#actions/delete-episodes": () => { location.hash = "#actions/delete"; },
+  "#watch": showWatchPage,
 };
 
 const app = document.getElementById("app");
 const searchInput = document.getElementById("search");
+let currentUser = loadSession();
+let userFavorites = [];
 
 window.addEventListener("hashchange", router);
 searchInput.addEventListener("input", () => router());
 
-function router() {
+// dispositivo.js
+function obterDadosDispositivo() {
+  const parser = new UAParser();
+  const result = parser.getResult();
+
+  const tipo = result.device.type || 'desktop';
+  const navegador = result.browser.name || 'Navegador Desconhecido';
+  const sistemaOperacional = result.os.name || 'OS Desconhecido';
+
+  return {
+    tipo: tipo,
+    nome: `${navegador} (${sistemaOperacional})`
+  };
+}
+
+async function syncFavorites() {
+  if (!currentUser) {
+    userFavorites = [];
+    return;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/favorites/${currentUser.user_id}`);
+    if (res.ok) {
+      const json = await res.json();
+      userFavorites = json.data || [];
+    }
+  } catch (err) {
+    console.error("Erro ao sincronizar favoritos:", err);
+  }
+}
+
+function isItemFavorited(id, type) {
+  return userFavorites.some(fav => {
+    if (type === "movies") return Number(fav.movie_id) === Number(id);
+    if (type === "episodes") return Number(fav.episode_id) === Number(id);
+    if (type === "series") return Number(fav.serie_id) === Number(id);
+    return false;
+  });
+}
+
+async function router() {
+  document.title = "LuFlix Admin";
   const hash = location.hash || "#movies";
   const [route, query] = hash.split("?");
   const handler = routes[route] || showMovies;
+
+  // Toggle header and nav bar elements visibility for auth routes
+  const header = document.querySelector(".site-header");
+  const mainNav = document.querySelector(".main-nav");
+  const searchWrap = document.querySelector(".search-wrap");
+  const userStatus = document.getElementById("user-status");
+
+  if (route === "#actions/login" || route === "#actions/register-user") {
+    document.body.classList.add("auth-page-active");
+    if (mainNav) mainNav.style.display = "none";
+    if (searchWrap) searchWrap.style.display = "none";
+    if (userStatus) userStatus.style.display = "none";
+    if (header) {
+      header.style.position = "absolute";
+      header.style.background = "transparent";
+      header.style.width = "100%";
+      header.style.boxShadow = "none";
+    }
+  } else {
+    document.body.classList.remove("auth-page-active");
+    if (mainNav) mainNav.style.display = "";
+    if (searchWrap) searchWrap.style.display = "";
+    if (userStatus) userStatus.style.display = "";
+    if (header) {
+      header.style.position = "";
+      header.style.background = "";
+      header.style.width = "";
+      header.style.boxShadow = "";
+    }
+  }
+
+  updateUserStatus();
   clearNavActive();
+
+  // Sincronizar favoritos se logado e lista local vazia
+  if (currentUser && userFavorites.length === 0) {
+    await syncFavorites();
+  }
+
   handler(new URLSearchParams(query || ""));
 }
 
@@ -68,19 +161,1018 @@ function showSeries() {
   });
 }
 
-function showSeasons() {
-  document.getElementById("nav-seasons").classList.add("active");
-  renderSection("Temporadas", async () => {
-    const query = buildQuery("seasons");
-    const res = await fetch(`${API_BASE}/views/seasons${query}`);
-    const data = await safeJson(res);
-    return renderSeasonCards(data.data || []);
+async function showSeriesViewPage(params) {
+  const id = getQueryParam(params, "id");
+  if (!id) {
+    app.innerHTML = `<div class="empty">Nenhuma série selecionada.</div>`;
+    return;
+  }
+
+  // Save the series ID in sessionStorage for the HLS player back button
+  sessionStorage.setItem("last_viewed_series_id", id);
+
+  // Activate series nav link
+  const navSeries = document.getElementById("nav-series");
+  if (navSeries) navSeries.classList.add("active");
+
+  renderSection("Carregando...", async () => {
+    try {
+      // 1. Fetch series details
+      const seriesRes = await fetch(`${API_BASE}/views/series?id=${id}`);
+      const seriesData = await safeJson(seriesRes);
+      const series = (seriesData.data || [])[0];
+
+      if (!series) {
+        return `<div class="empty">Série não encontrada.</div>`;
+      }
+
+      // 2. Fetch seasons to get season list
+      const seasonsRes = await fetch(`${API_BASE}/views/seasons?serie_title=${encodeURIComponent(series.title)}`);
+      const seasonsData = await safeJson(seasonsRes);
+      const seasonsList = seasonsData.data || [];
+
+      // Extract unique sorted season numbers
+      let seasonNumbers = [...new Set(seasonsList.map(s => Number(s.season_number)))];
+      seasonNumbers.sort((a, b) => a - b);
+
+      // Default to season 1 as required
+      if (!seasonNumbers.includes(1)) {
+        seasonNumbers.unshift(1);
+      }
+
+      // Container for the view
+      const detailContainer = document.createElement("div");
+      detailContainer.className = "watch-container"; // reusable style for detailed view
+
+      // Back Button
+      const backBtn = document.createElement("button");
+      backBtn.className = "back-link";
+      backBtn.innerHTML = `&larr; Voltar para Séries`;
+      backBtn.onclick = () => {
+        location.hash = "#series";
+      };
+      detailContainer.appendChild(backBtn);
+
+      // Series Info Card (premium styling similar to watch-info)
+      const infoSection = document.createElement("div");
+      infoSection.className = "watch-info";
+      infoSection.style.marginBottom = "24px";
+
+      const titleEl = document.createElement("h2");
+      titleEl.className = "watch-title";
+      titleEl.textContent = series.title;
+      infoSection.appendChild(titleEl);
+
+      const metaRow = document.createElement("div");
+      metaRow.className = "watch-meta";
+      
+      const ratingSpan = document.createElement("span");
+      ratingSpan.textContent = `★ ${series.nota || "0.0"}`;
+      metaRow.appendChild(ratingSpan);
+
+      const yearSpan = document.createElement("span");
+      yearSpan.textContent = series.ano_lancamento || "";
+      metaRow.appendChild(yearSpan);
+
+      const ratingTextSpan = document.createElement("span");
+      ratingTextSpan.textContent = series.classificacao || "Livre";
+      metaRow.appendChild(ratingTextSpan);
+
+      const seasonsCountSpan = document.createElement("span");
+      seasonsCountSpan.textContent = `${series.temporadas || 0} temporada(s)`;
+      metaRow.appendChild(seasonsCountSpan);
+
+      infoSection.appendChild(metaRow);
+
+      const synopsisEl = document.createElement("p");
+      synopsisEl.className = "watch-synopsis";
+      synopsisEl.textContent = series.sinopse || "Sem sinopse disponível.";
+      infoSection.appendChild(synopsisEl);
+
+      detailContainer.appendChild(infoSection);
+
+      // Section for season selection
+      const controlRow = document.createElement("div");
+      controlRow.style.display = "flex";
+      controlRow.style.alignItems = "center";
+      controlRow.style.gap = "12px";
+      controlRow.style.marginBottom = "24px";
+      controlRow.style.background = "var(--panel)";
+      controlRow.style.padding = "16px";
+      controlRow.style.borderRadius = "8px";
+      controlRow.style.border = "1px solid #2a2a2a";
+
+      const selectLabel = document.createElement("label");
+      selectLabel.setAttribute("for", "season-select");
+      selectLabel.style.fontWeight = "600";
+      selectLabel.style.color = "var(--muted)";
+      selectLabel.style.fontSize = "15px";
+      selectLabel.textContent = "Selecione a Temporada:";
+      controlRow.appendChild(selectLabel);
+
+      const selectEl = document.createElement("select");
+      selectEl.id = "season-select";
+      selectEl.style.background = "#222";
+      selectEl.style.border = "1px solid #333";
+      selectEl.style.padding = "8px 16px";
+      selectEl.style.borderRadius = "4px";
+      selectEl.style.color = "#fff";
+      selectEl.style.fontSize = "14px";
+      selectEl.style.fontWeight = "600";
+      selectEl.style.cursor = "pointer";
+      selectEl.style.outline = "none";
+      selectEl.style.minWidth = "120px";
+
+      seasonNumbers.forEach(num => {
+        const opt = document.createElement("option");
+        opt.value = num;
+        opt.textContent = `Temporada ${num}`;
+        selectEl.appendChild(opt);
+      });
+
+      // Default value to Season 1
+      selectEl.value = 1;
+      controlRow.appendChild(selectEl);
+      detailContainer.appendChild(controlRow);
+
+      // Episodes List Grid Container
+      const episodesGridContainer = document.createElement("div");
+      detailContainer.appendChild(episodesGridContainer);
+
+      // Load episodes function
+      const loadEpisodesForSeason = async (seasonNum) => {
+        episodesGridContainer.innerHTML = '<div class="empty">Carregando episódios...</div>';
+        try {
+          const episodesRes = await fetch(`${API_BASE}/views/episodes?serie_id=${series.serie_id}&season_number=${seasonNum}`);
+          const episodesData = await safeJson(episodesRes);
+          const episodes = episodesData.data || [];
+
+          episodesGridContainer.innerHTML = "";
+          const cardsNode = renderCards(episodes, "episodes");
+          episodesGridContainer.appendChild(cardsNode);
+        } catch (err) {
+          episodesGridContainer.innerHTML = `<div class="empty">Erro ao carregar episódios: ${escapeHtml(err.message)}</div>`;
+        }
+      };
+
+      // Load Season 1 by default
+      loadEpisodesForSeason(1);
+
+      // On select change, reload episodes
+      selectEl.addEventListener("change", () => {
+        loadEpisodesForSeason(selectEl.value);
+      });
+
+      document.title = `${series.title} - LuFlix`;
+      return detailContainer;
+    } catch (err) {
+      console.error(err);
+      return `<div class="empty">Erro ao carregar os detalhes da série: ${escapeHtml(err.message)}</div>`;
+    }
   });
 }
 
-function showActions() {
-  document.getElementById("nav-actions").classList.add("active");
-  renderSection("Ações", () => renderActionMenu());
+
+
+async function showActionsPage(params) {
+  // Activate actions nav link
+  const navActions = document.getElementById("nav-actions");
+  if (navActions) navActions.classList.add("active");
+
+  if (!currentUser) {
+    renderSection("Ações", renderNotLoggedIn);
+    return;
+  }
+
+  const hash = location.hash || "#actions/add";
+  const mode = hash.split("?")[0].split("/")[1] || "add"; // "add", "edit", "delete"
+
+  const modeTitles = {
+    add: "Adicionar Conteúdo",
+    edit: "Editar Conteúdo",
+    delete: "Excluir Conteúdo"
+  };
+
+  renderSection(modeTitles[mode] || "Ações", async () => {
+    const container = document.createElement("div");
+    container.className = "form";
+
+    // Mode tabs to easily switch
+    const tabsContainer = document.createElement("div");
+    tabsContainer.style.display = "flex";
+    tabsContainer.style.gap = "8px";
+    tabsContainer.style.marginBottom = "20px";
+
+    ["add", "edit", "delete"].forEach(m => {
+      const tabBtn = makeBtn(m === "add" ? "Adicionar" : m === "edit" ? "Editar" : "Deletar");
+      if (m === mode) {
+        tabBtn.classList.add("primary");
+      }
+      tabBtn.onclick = () => {
+        location.hash = `#actions/${m}`;
+      };
+      tabsContainer.appendChild(tabBtn);
+    });
+    container.appendChild(tabsContainer);
+
+    // Type Select dropdown
+    const typeLabel = document.createElement("label");
+    typeLabel.textContent = "Selecione o Tipo de Item:";
+    container.appendChild(typeLabel);
+
+    const typeSelect = document.createElement("select");
+    typeSelect.id = "actions-type-select";
+    typeSelect.innerHTML = `
+      <option value="">-- Escolha um tipo --</option>
+      <option value="movie">Filme</option>
+      <option value="episode">Episódio</option>
+      <option value="cast">Elenco (Atores/Diretores)</option>
+    `;
+    container.appendChild(typeSelect);
+
+    const formWrapper = document.createElement("div");
+    formWrapper.style.marginTop = "20px";
+    container.appendChild(formWrapper);
+
+    typeSelect.onchange = async () => {
+      formWrapper.innerHTML = '<div class="empty">Carregando formulário...</div>';
+      const val = typeSelect.value;
+      if (!val) {
+        formWrapper.innerHTML = "";
+        return;
+      }
+
+      try {
+        if (mode === "add") {
+          renderAddForm(val, formWrapper);
+        } else if (mode === "edit") {
+          await renderEditForm(val, formWrapper);
+        } else if (mode === "delete") {
+          await renderDeleteForm(val, formWrapper);
+        }
+      } catch (err) {
+        formWrapper.innerHTML = `<div class="empty" style="color:var(--accent)">Erro: ${escapeHtml(err.message)}</div>`;
+      }
+    };
+
+    return container;
+  });
+}
+
+function renderAddForm(type, parent) {
+  parent.innerHTML = "";
+  if (type === "movie") {
+    const fields = [
+      { id: "title", label: "Título", placeholder: "Nome do filme" },
+      { id: "release_year", label: "Ano de lançamento", type: "number" },
+      { id: "duration", label: "Duração (min)", type: "number" },
+      {
+        id: "content_rating",
+        type: "select",
+        label: "Classificação Indicativa",
+        options: [
+          { value: 1, label: "Livre para todos os públicos." },
+          { value: 2, label: "Não recomendado para menores de 10 anos." },
+          { value: 3, label: "Não recomendado para menores de 12 anos." },
+          { value: 4, label: "Não recomendado para menores de 14 anos." },
+          { value: 5, label: "Não recomendado para menores de 16 anos." },
+          { value: 6, label: "Não recomendado para menores de 18 anos." }
+        ]
+      },
+      { id: "directors", label: "IDs de diretores (vírgula)", placeholder: "1,2" },
+      { id: "synopsis", label: "Sinopse", type: "textarea" },
+      { id: "media", label: "Arquivo de mídia", type: "file", accept: "video/*" }
+    ];
+    const form = renderForm("Cadastrar Novo Filme", fields, "Enviar filme", async (inputs, feedback) => {
+      const title = inputs.title.value.trim();
+      const release_year = inputs.release_year.value.trim();
+      const duration = inputs.duration.value.trim();
+      const content_rating_id = inputs.content_rating.value;
+      const directors = inputs.directors.value.split(",").map(v => v.trim()).filter(Boolean);
+      const synopsis = inputs.synopsis.value.trim();
+      const media = inputs.media.files[0];
+
+      if (!title || !release_year || !duration || directors.length === 0 || !media || !synopsis) {
+        throw new Error("Preencha todos os campos obrigatórios e envie mídia.");
+      }
+
+      feedback.textContent = "Iniciando upload fatiado...";
+      const media_path = await uploadFileInChunks(media, "movies", (percentage) => {
+        feedback.textContent = percentage === 100 ? "Processando compressão HEVC..." : `Enviando vídeo (${percentage}%)...`;
+      });
+
+      const res = await fetch(`${API_BASE}/catalog/movies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, release_year, duration, content_rating_id, directors_id: directors, synopsis, media_path })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || res.statusText);
+      return json.message || "Filme cadastrado com sucesso.";
+    });
+    parent.appendChild(form);
+  } else if (type === "episode") {
+    const formNode = document.createElement("div");
+    formNode.className = "form";
+
+    const titleEl = document.createElement("h3");
+    titleEl.textContent = "Cadastrar novo episódio";
+    formNode.appendChild(titleEl);
+
+    const createLabel = (text) => {
+      const lbl = document.createElement("label");
+      lbl.textContent = text;
+      return lbl;
+    };
+
+    formNode.appendChild(createLabel("ID da série existente (opcional)"));
+    const serieIdInput = document.createElement("input");
+    serieIdInput.type = "number";
+    serieIdInput.id = "ep-serie-id";
+    serieIdInput.placeholder = "Deixe vazio para cadastrar uma nova série junto";
+    formNode.appendChild(serieIdInput);
+
+    const seriesFieldsContainer = document.createElement("div");
+    seriesFieldsContainer.id = "series-fields-container";
+    seriesFieldsContainer.style.marginTop = "15px";
+    seriesFieldsContainer.style.padding = "15px";
+    seriesFieldsContainer.style.border = "1px dashed var(--accent)";
+    seriesFieldsContainer.style.borderRadius = "6px";
+    seriesFieldsContainer.style.background = "rgba(229, 9, 20, 0.05)";
+
+    const seriesSecTitle = document.createElement("h4");
+    seriesSecTitle.textContent = "Dados da Nova Série";
+    seriesSecTitle.style.margin = "0 0 10px 0";
+    seriesSecTitle.style.color = "var(--accent)";
+    seriesFieldsContainer.appendChild(seriesSecTitle);
+
+    seriesFieldsContainer.appendChild(createLabel("Título da Série"));
+    const serieTitleInput = document.createElement("input");
+    serieTitleInput.type = "text";
+    serieTitleInput.id = "ep-serie-title";
+    serieTitleInput.placeholder = "Nome da nova série";
+    seriesFieldsContainer.appendChild(serieTitleInput);
+
+    seriesFieldsContainer.appendChild(createLabel("Sinopse da Série"));
+    const serieSynopsisInput = document.createElement("textarea");
+    serieSynopsisInput.id = "ep-serie-synopsis";
+    serieSynopsisInput.placeholder = "Sinopse da nova série";
+    seriesFieldsContainer.appendChild(serieSynopsisInput);
+
+    formNode.appendChild(seriesFieldsContainer);
+
+    const toggleSeriesFields = () => {
+      const hasSerieId = serieIdInput.value.trim() !== "";
+      seriesFieldsContainer.style.display = hasSerieId ? "none" : "block";
+    };
+    serieIdInput.addEventListener("input", toggleSeriesFields);
+    toggleSeriesFields();
+
+    formNode.appendChild(createLabel("Número da temporada"));
+    const seasonNumberInput = document.createElement("input");
+    seasonNumberInput.type = "number";
+    seasonNumberInput.id = "ep-season-number";
+    seasonNumberInput.placeholder = "Ex: 1";
+    formNode.appendChild(seasonNumberInput);
+
+    formNode.appendChild(createLabel("Título do episódio"));
+    const episodeTitleInput = document.createElement("input");
+    episodeTitleInput.type = "text";
+    episodeTitleInput.id = "ep-title";
+    episodeTitleInput.placeholder = "Nome do episódio";
+    formNode.appendChild(episodeTitleInput);
+
+    formNode.appendChild(createLabel("Sinopse do episódio"));
+    const episodeSynopsisInput = document.createElement("textarea");
+    episodeSynopsisInput.id = "ep-synopsis";
+    episodeSynopsisInput.placeholder = "O que acontece neste episódio";
+    formNode.appendChild(episodeSynopsisInput);
+
+    formNode.appendChild(createLabel("Ano de lançamento"));
+    const releaseYearInput = document.createElement("input");
+    releaseYearInput.type = "number";
+    releaseYearInput.id = "ep-release-year";
+    releaseYearInput.placeholder = "Ex: 2024";
+    formNode.appendChild(releaseYearInput);
+
+    formNode.appendChild(createLabel("Duração (min)"));
+    const durationInput = document.createElement("input");
+    durationInput.type = "number";
+    durationInput.id = "ep-duration";
+    durationInput.placeholder = "Ex: 45";
+    durationInput.value = "45";
+    formNode.appendChild(durationInput);
+
+    formNode.appendChild(createLabel("Classificação Indicativa"));
+    const contentRatingSelect = document.createElement("select");
+    contentRatingSelect.id = "ep-content-rating";
+    [
+      { value: 1, label: "Livre para todos os públicos." },
+      { value: 2, label: "Não recomendado para menores de 10 anos." },
+      { value: 3, label: "Não recomendado para menores de 12 anos." },
+      { value: 4, label: "Não recomendado para menores de 14 anos." },
+      { value: 5, label: "Não recomendado para menores de 16 anos." },
+      { value: 6, label: "Não recomendado para menores de 18 anos." }
+    ].forEach(opt => {
+      const option = document.createElement("option");
+      option.value = opt.value;
+      option.textContent = opt.label;
+      contentRatingSelect.appendChild(option);
+    });
+    formNode.appendChild(contentRatingSelect);
+
+    formNode.appendChild(createLabel("IDs de diretores (vírgula)"));
+    const directorsInput = document.createElement("input");
+    directorsInput.type = "text";
+    directorsInput.id = "ep-directors";
+    directorsInput.placeholder = "Ex: 1,2";
+    formNode.appendChild(directorsInput);
+
+    formNode.appendChild(createLabel("Arquivo de mídia"));
+    const mediaInput = document.createElement("input");
+    mediaInput.type = "file";
+    mediaInput.id = "ep-media";
+    mediaInput.accept = "video/*";
+    formNode.appendChild(mediaInput);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const submit = document.createElement("button");
+    submit.className = "btn primary";
+    submit.type = "button";
+    submit.textContent = "Enviar episódio";
+    actions.appendChild(submit);
+    formNode.appendChild(actions);
+
+    const feedback = document.createElement("div");
+    feedback.className = "form-feedback";
+    formNode.appendChild(feedback);
+
+    submit.addEventListener("click", async () => {
+      submit.disabled = true;
+      feedback.textContent = "Enviando...";
+      try {
+        const serieId = serieIdInput.value.trim();
+        const season_number = seasonNumberInput.value.trim();
+        const episode_title = episodeTitleInput.value.trim();
+        const episode_synopsis = episodeSynopsisInput.value.trim();
+        const release_year = releaseYearInput.value.trim();
+        const duration = durationInput.value.trim();
+        const content_rating_id = contentRatingSelect.value;
+        const directors = directorsInput.value.split(",").map((v) => v.trim()).filter(Boolean);
+        const media = mediaInput.files[0];
+
+        if (!season_number || !episode_title || !episode_synopsis || !release_year || !duration || directors.length === 0 || !media) {
+          throw new Error("Preencha todos os campos obrigatórios do episódio e envie o vídeo.");
+        }
+
+        let serie_title = null;
+        let serie_synopsis = null;
+
+        if (!serieId) {
+          serie_title = serieTitleInput.value.trim();
+          serie_synopsis = serieSynopsisInput.value.trim();
+          if (!serie_title || !serie_synopsis) {
+            throw new Error("Para cadastrar uma nova série, preencha o título e sinopse da série.");
+          }
+        }
+
+        feedback.textContent = "Iniciando upload fatiado...";
+        const media_path = await uploadFileInChunks(media, "episodes", (percentage) => {
+          feedback.textContent = percentage === 100 ? "Processando compressão HEVC..." : `Enviando vídeo (${percentage}%)...`;
+        });
+
+        feedback.textContent = "Salvando informações do episódio...";
+        const payload = {
+          release_year,
+          content_rating_id,
+          season_number,
+          episode_title,
+          episode_synopsis,
+          duration,
+          directors_id: directors,
+          media_path,
+        };
+
+        if (serieId) {
+          payload.serie_id = serieId;
+        } else {
+          payload.serie_title = serie_title;
+          payload.serie_synopsis = serie_synopsis;
+        }
+
+        const res = await fetch(`${API_BASE}/catalog/episodes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || res.statusText);
+        feedback.textContent = json.message || "Episódio cadastrado.";
+      } catch (error) {
+        feedback.textContent = `Erro: ${escapeHtml(error.message)}`;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    parent.appendChild(formNode);
+  } else if (type === "cast") {
+    const castTypeContainer = document.createElement("div");
+    const label = document.createElement("label");
+    label.textContent = "Tipo de Elenco:";
+    castTypeContainer.appendChild(label);
+
+    const castTypeSelect = document.createElement("select");
+    castTypeSelect.innerHTML = `
+      <option value="">-- Escolha um tipo --</option>
+      <option value="director">Diretor</option>
+      <option value="actor">Ator</option>
+    `;
+    castTypeContainer.appendChild(castTypeSelect);
+
+    const fieldsContainer = document.createElement("div");
+    fieldsContainer.style.marginTop = "20px";
+    castTypeContainer.appendChild(fieldsContainer);
+
+    castTypeSelect.onchange = () => {
+      fieldsContainer.innerHTML = "";
+      const val = castTypeSelect.value;
+      if (!val) return;
+
+      const title = val === "director" ? "Cadastrar Diretor" : "Cadastrar Ator";
+      const form = renderForm(
+        title,
+        [
+          { id: "first_name", label: "Primeiro Nome" },
+          { id: "last_name", label: "Sobrenome" },
+          { id: "nationality", label: "Nacionalidade" },
+          { id: "birth", label: "Data de Nascimento", type: "date" }
+        ],
+        "Cadastrar",
+        async (inputs) => {
+          const body = {
+            first_name: inputs.first_name.value.trim(),
+            last_name: inputs.last_name.value.trim(),
+            nationality: inputs.nationality.value.trim(),
+            birth: inputs.birth.value.trim() || null
+          };
+
+          if (!body.first_name || !body.last_name || !body.nationality) {
+            throw new Error("Preencha primeiro nome, sobrenome e nacionalidade.");
+          }
+
+          if (val === "director") {
+            const res = await fetch(`${API_BASE}/people/directors`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body)
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || res.statusText);
+            return json.message || "Diretor cadastrado com sucesso.";
+          } else {
+            const res = await fetch(`${API_BASE}/people/actors`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ actors: [body] })
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || res.statusText);
+            return json.message || "Ator cadastrado com sucesso.";
+          }
+        }
+      );
+      fieldsContainer.appendChild(form);
+    };
+
+    parent.appendChild(castTypeContainer);
+  }
+}
+
+async function renderEditForm(type, parent) {
+  parent.innerHTML = "";
+
+  if (type === "movie") {
+    const movies = await fetchItems("movies");
+    const select = document.createElement("select");
+    select.innerHTML = '<option value="">-- Selecione o Filme para editar --</option>';
+    movies.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = getItemId(m, "movies");
+      opt.textContent = `${getItemTitle(m, "movies")} (${m.ano_lancamento || "n/a"})`;
+      select.appendChild(opt);
+    });
+    parent.appendChild(select);
+
+    const formWrapper = document.createElement("div");
+    formWrapper.style.marginTop = "20px";
+    parent.appendChild(formWrapper);
+
+    select.onchange = async () => {
+      formWrapper.innerHTML = "";
+      const id = select.value;
+      if (!id) return;
+
+      const movie = movies.find(m => String(getItemId(m, "movies")) === String(id));
+      if (!movie) return;
+
+      const form = renderForm(
+        "Editar Filme",
+        [
+          { id: "title", label: "Título", value: movie.titulo || movie.title },
+          { id: "release_year", label: "Ano de lançamento", type: "number", value: movie.ano_lancamento },
+          { id: "duration", label: "Duração (min)", type: "number", value: movie.duracao },
+          { id: "synopsis", label: "Sinopse", type: "textarea", value: movie.sinopse },
+          { id: "media", label: "Mídia (opcional, HLS)", type: "file", accept: "video/*" }
+        ],
+        "Salvar Alterações",
+        async (inputs, feedback) => {
+          const payload = {};
+          if (inputs.title.value) payload.title = inputs.title.value.trim();
+          if (inputs.release_year.value) payload.release_year = inputs.release_year.value;
+          if (inputs.duration.value) payload.duration = inputs.duration.value;
+          if (inputs.synopsis.value) payload.synopsis = inputs.synopsis.value.trim();
+
+          if (inputs.media.files[0]) {
+            feedback.textContent = "Iniciando upload fatiado...";
+            payload.media_path = await uploadFileInChunks(inputs.media.files[0], "movies", (percentage) => {
+              feedback.textContent = percentage === 100 ? "Processando compressão HEVC..." : `Enviando vídeo (${percentage}%)...`;
+            });
+          }
+
+          if (Object.keys(payload).length === 0) {
+            throw new Error("Informe pelo menos um campo para atualizar.");
+          }
+
+          const res = await fetch(`${API_BASE}/catalog/movies/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || res.statusText);
+          return json.message || "Filme atualizado com sucesso.";
+        }
+      );
+      formWrapper.appendChild(form);
+    };
+  } else if (type === "episode") {
+    const episodes = await fetchItems("episodes");
+    const select = document.createElement("select");
+    select.innerHTML = '<option value="">-- Selecione o Episódio para editar --</option>';
+    episodes.forEach(ep => {
+      const opt = document.createElement("option");
+      opt.value = getItemId(ep, "episodes");
+      opt.textContent = `${ep.serie_title || "Série"} - T${ep.season_number}E${ep.episode_number} - ${getItemTitle(ep, "episodes")}`;
+      select.appendChild(opt);
+    });
+    parent.appendChild(select);
+
+    const formWrapper = document.createElement("div");
+    formWrapper.style.marginTop = "20px";
+    parent.appendChild(formWrapper);
+
+    select.onchange = () => {
+      formWrapper.innerHTML = "";
+      const id = select.value;
+      if (!id) return;
+
+      const ep = episodes.find(e => String(getItemId(e, "episodes")) === String(id));
+      if (!ep) return;
+
+      const form = renderForm(
+        "Editar Episódio",
+        [
+          { id: "episode_title", label: "Título", value: ep.episode_title || ep.title },
+          { id: "episode_number", label: "Número do episódio", type: "number", value: ep.episode_number },
+          { id: "duration", label: "Duração (min)", type: "number", value: ep.duration },
+          { id: "synopsis", label: "Sinopse", type: "textarea", value: ep.synopsis },
+          { id: "rating", label: "Nota", type: "number", value: ep.rating },
+          { id: "media", label: "Mídia (opcional, HLS)", type: "file", accept: "video/*" }
+        ],
+        "Salvar Alterações",
+        async (inputs, feedback) => {
+          const payload = {};
+          if (inputs.episode_title.value) payload.title = inputs.episode_title.value.trim();
+          if (inputs.episode_number.value) payload.episode_number = inputs.episode_number.value;
+          if (inputs.duration.value) payload.duration = inputs.duration.value;
+          if (inputs.synopsis.value) payload.synopsis = inputs.synopsis.value.trim();
+          if (inputs.rating.value) payload.rating = inputs.rating.value;
+
+          if (inputs.media.files[0]) {
+            feedback.textContent = "Iniciando upload fatiado...";
+            payload.media_path = await uploadFileInChunks(inputs.media.files[0], "episodes", (percentage) => {
+              feedback.textContent = percentage === 100 ? "Processando compressão HEVC..." : `Enviando vídeo (${percentage}%)...`;
+            });
+          }
+
+          if (Object.keys(payload).length === 0) {
+            throw new Error("Informe pelo menos um campo para atualizar.");
+          }
+
+          const res = await fetch(`${API_BASE}/catalog/episodes/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || res.statusText);
+          return json.message || "Episódio atualizado com sucesso.";
+        }
+      );
+      formWrapper.appendChild(form);
+    };
+  } else if (type === "cast") {
+    const castTypeContainer = document.createElement("div");
+    const label = document.createElement("label");
+    label.textContent = "Tipo de Elenco:";
+    castTypeContainer.appendChild(label);
+
+    const castTypeSelect = document.createElement("select");
+    castTypeSelect.innerHTML = `
+      <option value="">-- Escolha um tipo --</option>
+      <option value="director">Diretor</option>
+      <option value="actor">Ator</option>
+    `;
+    castTypeContainer.appendChild(castTypeSelect);
+
+    const editWrapper = document.createElement("div");
+    editWrapper.style.marginTop = "20px";
+    castTypeContainer.appendChild(editWrapper);
+
+    castTypeSelect.onchange = async () => {
+      editWrapper.innerHTML = '<div class="empty">Carregando listagem...</div>';
+      const val = castTypeSelect.value;
+      if (!val) {
+        editWrapper.innerHTML = "";
+        return;
+      }
+
+      let people = [];
+      const endpoint = val === "director" ? "directors" : "actors";
+      const res = await fetch(`${API_BASE}/people/${endpoint}`);
+      const json = await safeJson(res);
+      people = json.data || [];
+
+      editWrapper.innerHTML = "";
+      const selectPerson = document.createElement("select");
+      selectPerson.innerHTML = `<option value="">-- Selecione o ${val === "director" ? "Diretor" : "Ator"} --</option>`;
+      people.forEach(p => {
+        const idVal = val === "director" ? p.director_id : p.actor_id;
+        const opt = document.createElement("option");
+        opt.value = idVal;
+        opt.textContent = `${p.first_name} ${p.last_name} (${p.nationality})`;
+        selectPerson.appendChild(opt);
+      });
+      editWrapper.appendChild(selectPerson);
+
+      const formWrapper = document.createElement("div");
+      formWrapper.style.marginTop = "20px";
+      editWrapper.appendChild(formWrapper);
+
+      selectPerson.onchange = () => {
+        formWrapper.innerHTML = "";
+        const id = selectPerson.value;
+        if (!id) return;
+
+        const person = people.find(p => String(val === "director" ? p.director_id : p.actor_id) === String(id));
+        if (!person) return;
+
+        const formattedBirth = person.birth ? person.birth.split("T")[0] : "";
+
+        const form = renderForm(
+          `Editar ${val === "director" ? "Diretor" : "Ator"}`,
+          [
+            { id: "first_name", label: "Primeiro Nome", value: person.first_name },
+            { id: "last_name", label: "Sobrenome", value: person.last_name },
+            { id: "nationality", label: "Nacionalidade", value: person.nationality },
+            { id: "birth", label: "Data de Nascimento", type: "date", value: formattedBirth }
+          ],
+          "Salvar Alterações",
+          async (inputs) => {
+            const body = {
+              first_name: inputs.first_name.value.trim(),
+              last_name: inputs.last_name.value.trim(),
+              nationality: inputs.nationality.value.trim(),
+              birth: inputs.birth.value.trim() || null
+            };
+
+            if (!body.first_name || !body.last_name || !body.nationality) {
+              throw new Error("Preencha primeiro nome, sobrenome e nacionalidade.");
+            }
+
+            const res = await fetch(`${API_BASE}/people/${endpoint}/${id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body)
+            });
+            const resJson = await res.json();
+            if (!res.ok) throw new Error(resJson.error || res.statusText);
+            return resJson.message || "Dados atualizados com sucesso.";
+          }
+        );
+        formWrapper.appendChild(form);
+      };
+    };
+
+    parent.appendChild(castTypeContainer);
+  }
+}
+
+async function renderDeleteForm(type, parent) {
+  parent.innerHTML = "";
+
+  if (type === "movie") {
+    const movies = await fetchItems("movies");
+    const select = document.createElement("select");
+    select.innerHTML = '<option value="">-- Selecione o Filme para deletar --</option>';
+    movies.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = getItemId(m, "movies");
+      opt.textContent = `${getItemTitle(m, "movies")} (${m.ano_lancamento || "n/a"})`;
+      select.appendChild(opt);
+    });
+    parent.appendChild(select);
+
+    const infoWrapper = document.createElement("div");
+    infoWrapper.style.marginTop = "20px";
+    parent.appendChild(infoWrapper);
+
+    select.onchange = () => {
+      infoWrapper.innerHTML = "";
+      const id = select.value;
+      if (!id) return;
+
+      const movie = movies.find(m => String(getItemId(m, "movies")) === String(id));
+      if (!movie) return;
+
+      infoWrapper.innerHTML = `
+        <div style="background:rgba(229,9,20,0.05); padding:20px; border-radius:8px; border:1px solid var(--accent); margin-bottom:20px;">
+          <h4 style="color:var(--accent); margin:0 0 10px 0;">Confirmação de Exclusão</h4>
+          <p><strong>Título:</strong> ${movie.titulo || movie.title}</p>
+          <p><strong>Ano:</strong> ${movie.ano_lancamento}</p>
+          <p><strong>Sinopse:</strong> ${movie.sinopse}</p>
+        </div>
+      `;
+
+      const delBtn = makeBtn("Confirmar Exclusão");
+      delBtn.classList.add("primary");
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("Tem certeza que deseja excluir este filme permanentemente?")) return;
+        delBtn.disabled = true;
+        try {
+          const res = await fetch(`${API_BASE}/catalog/movies/${id}`, { method: "DELETE" });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || res.statusText);
+          alert(json.message || "Filme excluído.");
+          location.reload();
+        } catch (err) {
+          alert(`Erro: ${err.message}`);
+          delBtn.disabled = false;
+        }
+      });
+      infoWrapper.appendChild(delBtn);
+    };
+  } else if (type === "episode") {
+    const episodes = await fetchItems("episodes");
+    const select = document.createElement("select");
+    select.innerHTML = '<option value="">-- Selecione o Episódio para deletar --</option>';
+    episodes.forEach(ep => {
+      const opt = document.createElement("option");
+      opt.value = getItemId(ep, "episodes");
+      opt.textContent = `${ep.serie_title || "Série"} - T${ep.season_number}E${ep.episode_number} - ${getItemTitle(ep, "episodes")}`;
+      select.appendChild(opt);
+    });
+    parent.appendChild(select);
+
+    const infoWrapper = document.createElement("div");
+    infoWrapper.style.marginTop = "20px";
+    parent.appendChild(infoWrapper);
+
+    select.onchange = () => {
+      infoWrapper.innerHTML = "";
+      const id = select.value;
+      if (!id) return;
+
+      const ep = episodes.find(e => String(getItemId(e, "episodes")) === String(id));
+      if (!ep) return;
+
+      infoWrapper.innerHTML = `
+        <div style="background:rgba(229,9,20,0.05); padding:20px; border-radius:8px; border:1px solid var(--accent); margin-bottom:20px;">
+          <h4 style="color:var(--accent); margin:0 0 10px 0;">Confirmação de Exclusão</h4>
+          <p><strong>Título:</strong> ${ep.episode_title || ep.title}</p>
+          <p><strong>Série:</strong> ${ep.serie_title}</p>
+          <p><strong>Temporada:</strong> ${ep.season_number} | <strong>Episódio:</strong> ${ep.episode_number}</p>
+          <p><strong>Sinopse:</strong> ${ep.synopsis}</p>
+        </div>
+      `;
+
+      const delBtn = makeBtn("Confirmar Exclusão");
+      delBtn.classList.add("primary");
+      delBtn.addEventListener("click", async () => {
+        if (!confirm("Tem certeza que deseja excluir este episódio permanentemente?")) return;
+        delBtn.disabled = true;
+        try {
+          const res = await fetch(`${API_BASE}/catalog/episodes/${id}`, { method: "DELETE" });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || res.statusText);
+          alert(json.message || "Episódio excluído.");
+          location.reload();
+        } catch (err) {
+          alert(`Erro: ${err.message}`);
+          delBtn.disabled = false;
+        }
+      });
+      infoWrapper.appendChild(delBtn);
+    };
+  } else if (type === "cast") {
+    const castTypeContainer = document.createElement("div");
+    const label = document.createElement("label");
+    label.textContent = "Tipo de Elenco:";
+    castTypeContainer.appendChild(label);
+
+    const castTypeSelect = document.createElement("select");
+    castTypeSelect.innerHTML = `
+      <option value="">-- Escolha um tipo --</option>
+      <option value="director">Diretor</option>
+      <option value="actor">Ator</option>
+    `;
+    castTypeContainer.appendChild(castTypeSelect);
+
+    const deleteWrapper = document.createElement("div");
+    deleteWrapper.style.marginTop = "20px";
+    castTypeContainer.appendChild(deleteWrapper);
+
+    castTypeSelect.onchange = async () => {
+      deleteWrapper.innerHTML = '<div class="empty">Carregando listagem...</div>';
+      const val = castTypeSelect.value;
+      if (!val) {
+        deleteWrapper.innerHTML = "";
+        return;
+      }
+
+      let people = [];
+      const endpoint = val === "director" ? "directors" : "actors";
+      const res = await fetch(`${API_BASE}/people/${endpoint}`);
+      const json = await safeJson(res);
+      people = json.data || [];
+
+      deleteWrapper.innerHTML = "";
+      const selectPerson = document.createElement("select");
+      selectPerson.innerHTML = `<option value="">-- Selecione o ${val === "director" ? "Diretor" : "Ator"} --</option>`;
+      people.forEach(p => {
+        const idVal = val === "director" ? p.director_id : p.actor_id;
+        const opt = document.createElement("option");
+        opt.value = idVal;
+        opt.textContent = `${p.first_name} ${p.last_name} (${p.nationality})`;
+        selectPerson.appendChild(opt);
+      });
+      deleteWrapper.appendChild(selectPerson);
+
+      const infoWrapper = document.createElement("div");
+      infoWrapper.style.marginTop = "20px";
+      deleteWrapper.appendChild(infoWrapper);
+
+      selectPerson.onchange = () => {
+        infoWrapper.innerHTML = "";
+        const id = selectPerson.value;
+        if (!id) return;
+
+        const person = people.find(p => String(val === "director" ? p.director_id : p.actor_id) === String(id));
+        if (!person) return;
+
+        infoWrapper.innerHTML = `
+          <div style="background:rgba(229,9,20,0.05); padding:20px; border-radius:8px; border:1px solid var(--accent); margin-bottom:20px;">
+            <h4 style="color:var(--accent); margin:0 0 10px 0;">Confirmação de Exclusão</h4>
+            <p><strong>Nome:</strong> ${person.first_name} ${person.last_name}</p>
+            <p><strong>Nacionalidade:</strong> ${person.nationality}</p>
+            <p><strong>Nascimento:</strong> ${person.birth ? person.birth.split("T")[0] : "n/a"}</p>
+          </div>
+        `;
+
+        const delBtn = makeBtn("Confirmar Exclusão");
+        delBtn.classList.add("primary");
+        delBtn.addEventListener("click", async () => {
+          if (!confirm(`Tem certeza que deseja excluir este ${val === "director" ? "diretor" : "ator"}?`)) return;
+          delBtn.disabled = true;
+          try {
+            const res = await fetch(`${API_BASE}/people/${endpoint}/${id}`, { method: "DELETE" });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || res.statusText);
+            alert(json.message || "Excluído com sucesso.");
+            location.reload();
+          } catch (err) {
+            alert(`Erro: ${err.message}`);
+            delBtn.disabled = false;
+          }
+        });
+        infoWrapper.appendChild(delBtn);
+      };
+    };
+
+    parent.appendChild(castTypeContainer);
+  }
 }
 
 function buildQuery(type) {
@@ -88,6 +1180,30 @@ function buildQuery(type) {
   if (!value) return "";
   const param = type === "seasons" ? "serie_title" : "title";
   return `?${param}=${encodeURIComponent(value)}`;
+}
+
+function requireLoginContent(renderContent) {
+  if (!currentUser) {
+    return renderNotLoggedIn();
+  }
+  return renderContent();
+}
+
+function renderNotLoggedIn() {
+  const container = document.createElement("div");
+  container.className = "form";
+  const titleEl = document.createElement("h3");
+  titleEl.textContent = "Acesso restrito";
+  container.appendChild(titleEl);
+  const message = document.createElement("p");
+  message.textContent = "Você precisa estar logado para executar esta ação.";
+  container.appendChild(message);
+  const loginBtn = makeBtn("Entrar");
+  loginBtn.addEventListener("click", () => {
+    location.hash = "#actions/login";
+  });
+  container.appendChild(loginBtn);
+  return container;
 }
 
 function renderSection(title, renderContent) {
@@ -130,7 +1246,7 @@ function renderCards(items = [], type) {
     const thumb = document.createElement("div");
     thumb.className = "thumb";
     if (item.media_path)
-      thumb.style.backgroundImage = `url(/${item.media_path})`;
+      thumb.style.backgroundImage = `url(${API_ORIGIN}/${item.media_path})`;
     const meta = document.createElement("div");
     meta.className = "meta";
     const title = document.createElement("h3");
@@ -143,17 +1259,67 @@ function renderCards(items = [], type) {
     controls.className = "actions";
 
     if (type !== "seasons") {
+      if (type === "movies" || type === "episodes") {
+        const watchBtn = makeBtn("Assistir");
+        watchBtn.classList.add("primary");
+        watchBtn.onclick = (event) => {
+          event.stopPropagation();
+          location.hash = `#watch?type=${type}&id=${getItemId(item, type)}`;
+        };
+        controls.appendChild(watchBtn);
+      } else if (type === "series") {
+        const watchBtn = makeBtn("Ver Episódios");
+        watchBtn.classList.add("primary");
+        watchBtn.onclick = (event) => {
+          event.stopPropagation();
+          location.hash = `#series/view?id=${getItemId(item, type)}`;
+        };
+        controls.appendChild(watchBtn);
+      }
       const editBtn = makeBtn("Editar");
       editBtn.onclick = () => {
         location.hash = `#actions/edit-${type}?id=${getItemId(item, type)}`;
       };
       const deleteBtn = makeBtn("Excluir");
-      deleteBtn.classList.add("primary");
       deleteBtn.onclick = () => {
         location.hash = `#actions/delete-${type}?id=${getItemId(item, type)}`;
       };
       controls.appendChild(editBtn);
       controls.appendChild(deleteBtn);
+    }
+
+    if (type === "movies" || type === "episodes" || type === "series") {
+      const itemId = getItemId(item, type);
+      const isFav = isItemFavorited(itemId, type);
+      const favoriteBtn = makeBtn(isFav ? "★ Favoritado" : "☆ Favoritar");
+      if (isFav) {
+        favoriteBtn.classList.add("favorited");
+      }
+      favoriteBtn.onclick = async (event) => {
+        event.stopPropagation();
+        if (!currentUser) {
+          location.hash = "#actions/login";
+          return;
+        }
+        favoriteBtn.disabled = true;
+        try {
+          const result = await addFavoriteToItem(item, type);
+          await syncFavorites();
+          const nowFav = isItemFavorited(itemId, type);
+          favoriteBtn.textContent = nowFav ? "★ Favoritado" : "☆ Favoritar";
+          if (nowFav) {
+            favoriteBtn.classList.add("favorited");
+          } else {
+            favoriteBtn.classList.remove("favorited");
+          }
+          alert(result.message);
+        } catch (error) {
+          alert(error.message || "Erro ao atualizar favoritos.");
+        } finally {
+          favoriteBtn.disabled = false;
+        }
+      };
+      controls.appendChild(favoriteBtn);
     }
 
     meta.appendChild(title);
@@ -240,6 +1406,7 @@ function renderActionMenu() {
     { label: "Remover Favorito", hash: "#actions/remove-favorite" },
     { label: "Adicionar Histórico", hash: "#actions/add-history" },
     { label: "Registrar Usuário", hash: "#actions/register-user" },
+    currentUser ? { label: "Logout", hash: "#actions/logout" } : { label: "Login", hash: "#actions/login" },
     { label: "Assinar Usuário", hash: "#actions/subscribe-user" },
     { label: "Cadastrar Diretor", hash: "#actions/add-director-person" },
     { label: "Cadastrar Atores", hash: "#actions/add-actors-person" },
@@ -259,6 +1426,11 @@ function renderActionMenu() {
     button.type = "button";
     button.textContent = action.label;
     button.addEventListener("click", () => {
+      if (action.hash === "#actions/logout") {
+        clearSession();
+        router();
+        return;
+      }
       location.hash = action.hash;
     });
     card.appendChild(button);
@@ -321,7 +1493,7 @@ function renderForm(title, fields, submitLabel, onSubmit) {
     submit.disabled = true;
     feedback.textContent = "Enviando...";
     try {
-      const message = await onSubmit(inputs);
+      const message = await onSubmit(inputs, feedback);
       feedback.textContent = message || "Concluído com sucesso.";
     } catch (error) {
       feedback.textContent = `Erro: ${escapeHtml(error.message)}`;
@@ -337,195 +1509,503 @@ function getQueryParam(params, name) {
   return params.get(name) || "";
 }
 
+async function uploadFileInChunks(file, type, progressCallback) {
+  const chunkSize = 10 * 1024 * 1024; // 10MB pedaços
+  const totalChunks = Math.ceil(file.size / chunkSize);
+  const uploadId = "up_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+  
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize, file.size);
+    const chunkBlob = file.slice(start, end);
+    
+    const formData = new FormData();
+    formData.append("uploadId", uploadId);
+    formData.append("chunkIndex", i);
+    formData.append("totalChunks", totalChunks);
+    formData.append("filename", file.name);
+    formData.append("type", type);
+    formData.append("media", chunkBlob, file.name);
+    
+    let attempt = 0;
+    const maxAttempts = 3;
+    let success = false;
+    
+    while (attempt < maxAttempts && !success) {
+      try {
+        const res = await fetch(`${API_BASE}/catalog/upload-chunk`, {
+          method: "POST",
+          body: formData,
+        });
+        
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || `Erro HTTP ${res.status}`);
+        }
+        
+        const data = await res.json();
+        success = true;
+        
+        if (i === totalChunks - 1 && data.status === "completed") {
+          return data.media_path;
+        }
+      } catch (err) {
+        attempt++;
+        console.error(`Tentativa ${attempt} falhou para a fatia ${i}:`, err);
+        if (attempt >= maxAttempts) {
+          throw new Error(`Falha ao enviar a fatia ${i} após ${maxAttempts} tentativas. Detalhe: ${err.message}`);
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    
+    if (progressCallback) {
+      const percentage = Math.round(((i + 1) / totalChunks) * 100);
+      progressCallback(percentage);
+    }
+  }
+}
+
+function addFavoriteToItem(item, type) {
+  const body = { user_id: currentUser.user_id };
+  if (type === "movies") {
+    body.movie_id = getItemId(item, type);
+  } else if (type === "episodes") {
+    body.episode_id = getItemId(item, type);
+  } else if (type === "series") {
+    body.serie_id = getItemId(item, type);
+  }
+  return fetch(`${API_BASE}/favorites`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+    .then((res) => res.json().then((json) => ({ ok: res.ok, json })))
+    .then(({ ok, json }) => {
+      if (!ok) throw new Error(json.error || res.statusText || "Erro ao favoritar.");
+      return json;
+    });
+}
+
+function loadSession() {
+  try {
+    return JSON.parse(localStorage.getItem(USER_STORAGE_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveSession(user) {
+  currentUser = user;
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  updateUserStatus();
+  await syncFavorites();
+}
+
+function clearSession() {
+  currentUser = null;
+  userFavorites = [];
+  localStorage.removeItem(USER_STORAGE_KEY);
+  updateUserStatus();
+}
+
+function updateUserStatus() {
+  const statusEl = document.getElementById("user-status");
+  if (!statusEl) return;
+  if (currentUser) {
+    statusEl.innerHTML = `
+      <span>Logado como ${escapeHtml(currentUser.name || currentUser.email || "Usuário")} (#${currentUser.user_id})</span>
+      <button type="button" id="logout-btn">Sair</button>
+    `;
+    const logoutBtn = document.getElementById("logout-btn");
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", () => {
+        clearSession();
+        location.hash = "#actions/login";
+      });
+    }
+  } else {
+    statusEl.innerHTML = `
+      <span>Não autenticado</span>
+      <button type="button" id="login-status-btn">Entrar</button>
+    `;
+    const loginBtn = document.getElementById("login-status-btn");
+    if (loginBtn) {
+      loginBtn.addEventListener("click", () => {
+        location.hash = "#actions/login";
+      });
+    }
+  }
+}
+
 async function showAddMoviePage() {
   renderSection("Adicionar Filme", () =>
-    renderForm(
-      "Cadastrar novo filme",
-      [
-        { id: "title", label: "Título", placeholder: "Nome do filme" },
-        { id: "release_year", label: "Ano de lançamento", type: "number" },
-        { id: "duration", label: "Duração (min)", type: "number" },
-        {
-          id: "content_rating",
-          type: "select",
-          label: "Classificação Indicativa",
-          options: [
-            { value: 1, label: "Livre para todos os públicos." },
-            { value: 2, label: "Não recomendado para menores de 10 anos." },
-            { value: 3, label: "Não recomendado para menores de 12 anos." },
-            { value: 4, label: "Não recomendado para menores de 14 anos." },
-            { value: 5, label: "Não recomendado para menores de 16 anos." },
-            { value: 6, label: "Não recomendado para menores de 18 anos." }
-          ]
-        },
-        {
-          id: "directors",
-          label: "IDs de diretores (vírgula)",
-          placeholder: "1,2",
-        },
-        {
-          id: "synopsis",
-          label: "Sinopse",
-          type: "textarea"
-        },
-        {
-          id: "media",
-          label: "Arquivo de mídia",
-          type: "file",
-          accept: "video/*",
-        },
-      ],
-      "Enviar filme",
-      async (inputs) => {
-        const title = inputs.title.value.trim();
-        const release_year = inputs.release_year.value.trim();
-        const duration = inputs.duration.value.trim();
-        const directors = inputs.directors.value
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean);
-        const synopsis = inputs.synopsis.value.trim()
-        const media = inputs.media.files[0];
+    requireLoginContent(() =>
+      renderForm(
+        "Cadastrar novo filme",
+        [
+          { id: "title", label: "Título", placeholder: "Nome do filme" },
+          { id: "release_year", label: "Ano de lançamento", type: "number" },
+          { id: "duration", label: "Duração (min)", type: "number" },
+          {
+            id: "content_rating",
+            type: "select",
+            label: "Classificação Indicativa",
+            options: [
+              { value: 1, label: "Livre para todos os públicos." },
+              { value: 2, label: "Não recomendado para menores de 10 anos." },
+              { value: 3, label: "Não recomendado para menores de 12 anos." },
+              { value: 4, label: "Não recomendado para menores de 14 anos." },
+              { value: 5, label: "Não recomendado para menores de 16 anos." },
+              { value: 6, label: "Não recomendado para menores de 18 anos." }
+            ]
+          },
+          {
+            id: "directors",
+            label: "IDs de diretores (vírgula)",
+            placeholder: "1,2",
+          },
+          {
+            id: "synopsis",
+            label: "Sinopse",
+            type: "textarea"
+          },
+          {
+            id: "media",
+            label: "Arquivo de mídia",
+            type: "file",
+            accept: "video/*",
+          },
+        ],
+        "Enviar filme",
+        async (inputs, feedback) => {
+          const title = inputs.title.value.trim();
+          const release_year = inputs.release_year.value.trim();
+          const duration = inputs.duration.value.trim();
+          const content_rating_id = inputs.content_rating ? inputs.content_rating.value : "1";
+          const directors = inputs.directors.value
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean);
+          const synopsis = inputs.synopsis.value.trim()
+          const media = inputs.media.files[0];
 
-        if (
-          !title ||
-          !release_year ||
-          !duration ||
-          directors.length === 0 ||
-          !media ||
-          !synopsis
-        ) {
-          throw new Error(
-            "Preencha todos os campos obrigatórios e envie mídia.",
-          );
-        }
+          if (
+            !title ||
+            !release_year ||
+            !duration ||
+            directors.length === 0 ||
+            !media ||
+            !synopsis
+          ) {
+            throw new Error(
+              "Preencha todos os campos obrigatórios e envie mídia.",
+            );
+          }
 
-        const body = new FormData();
-        body.append("title", title);
-        body.append("release_year", release_year);
-        body.append("duration", duration);
-        body.append("content_rating_id", "1");
-        directors.forEach((id) => body.append("directors_id", id));
-        body.append("synopsis", synopsis)
-        body.append("media", media);
+          feedback.textContent = "Iniciando upload fatiado...";
+          const media_path = await uploadFileInChunks(media, "movies", (percentage) => {
+            if (percentage === 100) {
+              feedback.textContent = "Processando compressão HEVC (H.265)... Isso pode levar alguns segundos...";
+            } else {
+              feedback.textContent = `Enviando vídeo em fatias (${percentage}%)...`;
+            }
+          });
 
-        console.log(body);
-
-        const res = await fetch(`${API_BASE}/catalog/movies`, {
-          method: "POST",
-          body,
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || res.statusText);
-        return json.message || "Filme cadastrado.";
-      },
-    ),
+          feedback.textContent = "Salvando informações do filme...";
+          const res = await fetch(`${API_BASE}/catalog/movies`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title,
+              release_year,
+              duration,
+              content_rating_id,
+              directors_id: directors,
+              synopsis,
+              media_path,
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || res.statusText);
+          return json.message || "Filme cadastrado.";
+        }),
+    )
   );
 }
 
 async function showAddSeriePage() {
   renderSection("Adicionar Série", () =>
-    renderForm(
-      "Cadastrar nova série",
-      [
-        { id: "title", label: "Título", placeholder: "Nome da série" },
-        { id: "release_year", label: "Ano de lançamento", type: "number" },
-        { id: "rating", label: "Nota", type: "number" },
-        { id: "synopsis", label: "Sinopse", type: "textarea" },
-      ],
-      "Enviar série",
-      async (inputs) => {
-        const body = {
-          title: inputs.title.value.trim(),
-          release_year: Number(inputs.release_year.value),
-          rating: Number(inputs.rating.value) || 0,
-          synopsis: inputs.synopsis.value.trim(),
-          content_rating_id: 1,
-        };
+    requireLoginContent(() =>
+      renderForm(
+        "Cadastrar nova série",
+        [
+          { id: "title", label: "Título", placeholder: "Nome da série" },
+          { id: "release_year", label: "Ano de lançamento", type: "number" },
+          { id: "rating", label: "Nota", type: "number" },
+          { id: "synopsis", label: "Sinopse", type: "textarea" },
+        ],
+        "Enviar série",
+        async (inputs) => {
+          const body = {
+            title: inputs.title.value.trim(),
+            release_year: Number(inputs.release_year.value),
+            rating: Number(inputs.rating.value) || 0,
+            synopsis: inputs.synopsis.value.trim(),
+            content_rating_id: 1,
+          };
 
-        if (!body.title || !body.release_year || !body.synopsis) {
-          throw new Error("Preencha título, ano e sinopse.");
-        }
+          if (!body.title || !body.release_year || !body.synopsis) {
+            throw new Error("Preencha título, ano e sinopse.");
+          }
 
-        const res = await fetch(`${API_BASE}/catalog/series`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || res.statusText);
-        return json.message || "Série cadastrada.";
-      },
-    ),
-  );
+          const res = await fetch(`${API_BASE}/catalog/series`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || res.statusText);
+          return json.message || "Série cadastrada.";
+        },
+      ),
+    ));
 }
 
 async function showAddEpisodePage() {
   renderSection("Adicionar Episódio", () =>
-    renderForm(
-      "Cadastrar novo episódio",
-      [
-        {
-          id: "serie_id",
-          label: "ID da série existente (opcional)",
-          type: "number",
-        },
-        { id: "season_number", label: "Número da temporada", type: "number" },
-        { id: "episode_title", label: "Título do episódio" },
-        { id: "episode_synopsis", label: "Sinopse", type: "textarea" },
-        {
-          id: "directors",
-          label: "IDs de diretores (vírgula)",
-          placeholder: "1,2",
-        },
-        {
-          id: "media",
-          label: "Arquivo de mídia",
-          type: "file",
-          accept: "video/*",
-        },
-      ],
-      "Enviar episódio",
-      async (inputs) => {
-        const season_number = inputs.season_number.value.trim();
-        const directors = inputs.directors.value
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean);
-        const media = inputs.media.files[0];
+    requireLoginContent(() => {
+      const form = document.createElement("div");
+      form.className = "form";
 
-        if (
-          !season_number ||
-          !inputs.episode_title.value.trim() ||
-          !inputs.episode_synopsis.value.trim() ||
-          directors.length === 0 ||
-          !media
-        ) {
-          throw new Error(
-            "Preencha todos os campos obrigatórios e envie mídia.",
-          );
+      const titleEl = document.createElement("h3");
+      titleEl.textContent = "Cadastrar novo episódio";
+      form.appendChild(titleEl);
+
+      const createLabel = (text) => {
+        const lbl = document.createElement("label");
+        lbl.textContent = text;
+        return lbl;
+      };
+
+      // 1. ID da série
+      form.appendChild(createLabel("ID da série existente (opcional)"));
+      const serieIdInput = document.createElement("input");
+      serieIdInput.type = "number";
+      serieIdInput.id = "ep-serie-id";
+      serieIdInput.placeholder = "Deixe vazio para cadastrar uma nova série junto";
+      form.appendChild(serieIdInput);
+
+      // Container de campos da nova série (exibido apenas se ID estiver vazio)
+      const seriesFieldsContainer = document.createElement("div");
+      seriesFieldsContainer.id = "series-fields-container";
+      seriesFieldsContainer.style.marginTop = "15px";
+      seriesFieldsContainer.style.padding = "15px";
+      seriesFieldsContainer.style.border = "1px dashed var(--accent)";
+      seriesFieldsContainer.style.borderRadius = "6px";
+      seriesFieldsContainer.style.background = "rgba(229, 9, 20, 0.05)";
+
+      const seriesSecTitle = document.createElement("h4");
+      seriesSecTitle.textContent = "Dados da Nova Série";
+      seriesSecTitle.style.margin = "0 0 10px 0";
+      seriesSecTitle.style.color = "var(--accent)";
+      seriesFieldsContainer.appendChild(seriesSecTitle);
+
+      seriesFieldsContainer.appendChild(createLabel("Título da Série"));
+      const serieTitleInput = document.createElement("input");
+      serieTitleInput.type = "text";
+      serieTitleInput.id = "ep-serie-title";
+      serieTitleInput.placeholder = "Nome da nova série";
+      seriesFieldsContainer.appendChild(serieTitleInput);
+
+      seriesFieldsContainer.appendChild(createLabel("Sinopse da Série"));
+      const serieSynopsisInput = document.createElement("textarea");
+      serieSynopsisInput.id = "ep-serie-synopsis";
+      serieSynopsisInput.placeholder = "Sinopse da nova série";
+      seriesFieldsContainer.appendChild(serieSynopsisInput);
+
+      form.appendChild(seriesFieldsContainer);
+
+      // Função para ocultar/exibir os campos da série
+      const toggleSeriesFields = () => {
+        const hasSerieId = serieIdInput.value.trim() !== "";
+        if (hasSerieId) {
+          seriesFieldsContainer.style.display = "none";
+        } else {
+          seriesFieldsContainer.style.display = "block";
         }
+      };
+      serieIdInput.addEventListener("input", toggleSeriesFields);
+      // Roda a verificação inicial
+      toggleSeriesFields();
 
-        const body = new FormData();
-        body.append("season_number", season_number);
-        body.append("episode_title", inputs.episode_title.value.trim());
-        body.append("episode_synopsis", inputs.episode_synopsis.value.trim());
-        body.append("duration", "45");
-        body.append("content_rating_id", "1");
-        if (inputs.serie_id.value.trim())
-          body.append("serie_id", inputs.serie_id.value.trim());
-        directors.forEach((id) => body.append("directors_id", id));
-        body.append("media", media);
+      // 3. Número da temporada
+      form.appendChild(createLabel("Número da temporada"));
+      const seasonNumberInput = document.createElement("input");
+      seasonNumberInput.type = "number";
+      seasonNumberInput.id = "ep-season-number";
+      seasonNumberInput.placeholder = "Ex: 1";
+      form.appendChild(seasonNumberInput);
 
-        const res = await fetch(`${API_BASE}/catalog/episodes`, {
-          method: "POST",
-          body,
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || res.statusText);
-        return json.message || "Episódio cadastrado.";
-      },
-    ),
+      // 4. Título do episódio
+      form.appendChild(createLabel("Título do episódio"));
+      const episodeTitleInput = document.createElement("input");
+      episodeTitleInput.type = "text";
+      episodeTitleInput.id = "ep-title";
+      episodeTitleInput.placeholder = "Nome do episódio";
+      form.appendChild(episodeTitleInput);
+
+      // 5. Sinopse do episódio
+      form.appendChild(createLabel("Sinopse do episódio"));
+      const episodeSynopsisInput = document.createElement("textarea");
+      episodeSynopsisInput.id = "ep-synopsis";
+      episodeSynopsisInput.placeholder = "O que acontece neste episódio";
+      form.appendChild(episodeSynopsisInput);
+
+      // 6. Ano de lançamento
+      form.appendChild(createLabel("Ano de lançamento"));
+      const releaseYearInput = document.createElement("input");
+      releaseYearInput.type = "number";
+      releaseYearInput.id = "ep-release-year";
+      releaseYearInput.placeholder = "Ex: 2024";
+      form.appendChild(releaseYearInput);
+
+      // 7. Duração
+      form.appendChild(createLabel("Duração (min)"));
+      const durationInput = document.createElement("input");
+      durationInput.type = "number";
+      durationInput.id = "ep-duration";
+      durationInput.placeholder = "Ex: 45";
+      durationInput.value = "45";
+      form.appendChild(durationInput);
+
+      // 8. Classificação Indicativa
+      form.appendChild(createLabel("Classificação Indicativa"));
+      const contentRatingSelect = document.createElement("select");
+      contentRatingSelect.id = "ep-content-rating";
+      const ratingOptions = [
+        { value: 1, label: "Livre para todos os públicos." },
+        { value: 2, label: "Não recomendado para menores de 10 anos." },
+        { value: 3, label: "Não recomendado para menores de 12 anos." },
+        { value: 4, label: "Não recomendado para menores de 14 anos." },
+        { value: 5, label: "Não recomendado para menores de 16 anos." },
+        { value: 6, label: "Não recomendado para menores de 18 anos." }
+      ];
+      ratingOptions.forEach(opt => {
+        const option = document.createElement("option");
+        option.value = opt.value;
+        option.textContent = opt.label;
+        contentRatingSelect.appendChild(option);
+      });
+      form.appendChild(contentRatingSelect);
+
+      // 9. Diretores
+      form.appendChild(createLabel("IDs de diretores (vírgula)"));
+      const directorsInput = document.createElement("input");
+      directorsInput.type = "text";
+      directorsInput.id = "ep-directors";
+      directorsInput.placeholder = "Ex: 1,2";
+      form.appendChild(directorsInput);
+
+      // 10. Arquivo de mídia
+      form.appendChild(createLabel("Arquivo de mídia"));
+      const mediaInput = document.createElement("input");
+      mediaInput.type = "file";
+      mediaInput.id = "ep-media";
+      mediaInput.accept = "video/*";
+      form.appendChild(mediaInput);
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const submit = document.createElement("button");
+      submit.className = "btn primary";
+      submit.type = "button";
+      submit.textContent = "Enviar episódio";
+      actions.appendChild(submit);
+      form.appendChild(actions);
+
+      const feedback = document.createElement("div");
+      feedback.className = "form-feedback";
+      form.appendChild(feedback);
+
+      submit.addEventListener("click", async () => {
+        submit.disabled = true;
+        feedback.textContent = "Enviando...";
+
+        try {
+          const serieId = serieIdInput.value.trim();
+          const season_number = seasonNumberInput.value.trim();
+          const episode_title = episodeTitleInput.value.trim();
+          const episode_synopsis = episodeSynopsisInput.value.trim();
+          const release_year = releaseYearInput.value.trim();
+          const duration = durationInput.value.trim();
+          const content_rating_id = contentRatingSelect.value;
+          const directors = directorsInput.value
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean);
+          const media = mediaInput.files[0];
+
+          if (!season_number || !episode_title || !episode_synopsis || !release_year || !duration || directors.length === 0 || !media) {
+            throw new Error("Preencha todos os campos obrigatórios do episódio e envie o vídeo.");
+          }
+
+          let serie_title = null;
+          let serie_synopsis = null;
+
+          if (!serieId) {
+            serie_title = serieTitleInput.value.trim();
+            serie_synopsis = serieSynopsisInput.value.trim();
+            if (!serie_title || !serie_synopsis) {
+              throw new Error("Para cadastrar uma nova série, preencha o título e sinopse da série.");
+            }
+          }
+
+          feedback.textContent = "Iniciando upload fatiado...";
+          const media_path = await uploadFileInChunks(media, "episodes", (percentage) => {
+            if (percentage === 100) {
+              feedback.textContent = "Processando compressão HEVC (H.265)... Isso pode levar alguns segundos...";
+            } else {
+              feedback.textContent = `Enviando vídeo em fatias (${percentage}%)...`;
+            }
+          });
+
+          feedback.textContent = "Salvando informações do episódio...";
+          const payload = {
+            release_year,
+            content_rating_id,
+            season_number,
+            episode_title,
+            episode_synopsis,
+            duration,
+            directors_id: directors,
+            media_path,
+          };
+
+          if (serieId) {
+            payload.serie_id = serieId;
+          } else {
+            payload.serie_title = serie_title;
+            payload.serie_synopsis = serie_synopsis;
+          }
+
+          const res = await fetch(`${API_BASE}/catalog/episodes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || res.statusText);
+          feedback.textContent = json.message || "Episódio cadastrado.";
+        } catch (error) {
+          feedback.textContent = `Erro: ${escapeHtml(error.message)}`;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+
+      return form;
+    })
   );
 }
 
@@ -741,7 +2221,8 @@ async function showAddReviewPage() {
 /*
 async function showAddFavoritePage() {
   renderSection("Adicionar Favorito", () =>
-    renderForm(
+    requireLoginContent(() =>
+      renderForm(
       "Adicionar favorito",
       [
         { id: "user_id", label: "ID do usuário", type: "number" },
@@ -788,7 +2269,8 @@ async function showAddFavoritePage() {
 
 async function showRemoveFavoritePage() {
   renderSection("Remover Favorito", () =>
-    renderForm(
+    requireLoginContent(() =>
+      renderForm(
       "Remover favorito",
       [
         { id: "user_id", label: "ID do usuário", type: "number" },
@@ -886,50 +2368,318 @@ async function showAddHistoryPage() {
   );
 }
 */
-async function showRegisterUserPage() {
-  renderSection("Registrar Usuário", () =>
-    renderForm(
-      "Cadastrar usuário e dispositivo",
-      [
-        { id: "name", label: "Nome" },
-        { id: "email", label: "Email", type: "text" },
-        { id: "password", label: "Senha", type: "text" },
-        { id: "device_token", label: "Device Token" },
-        { id: "device_type", label: "Tipo de dispositivo" },
-        { id: "device_name", label: "Nome do dispositivo" },
-      ],
-      "Registrar",
-      async (inputs) => {
-        const body = {
-          name: inputs.name.value.trim(),
-          email: inputs.email.value.trim(),
-          password: inputs.password.value.trim(),
-          device_token: inputs.device_token.value.trim(),
-          device_type: inputs.device_type.value.trim(),
-          device_name: inputs.device_name.value.trim(),
-        };
+function renderAuthPage(contentNode) {
+  app.innerHTML = "";
 
-        if (
-          !body.name ||
-          !body.email ||
-          !body.password ||
-          !body.device_token ||
-          !body.device_type ||
-          !body.device_name
-        ) {
-          throw new Error("Preencha todos os campos do usuário.");
-        }
-        const res = await fetch(`${API_BASE}/users/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || res.statusText);
-        return `Usuário criado com ID ${json.user_id}`;
-      },
-    ),
-  );
+  // Background overlay with film collage layout
+  const overlay = document.createElement("div");
+  overlay.className = "auth-bg-overlay";
+  app.appendChild(overlay);
+
+  // Centered auth container
+  const container = document.createElement("div");
+  container.className = "auth-container";
+  container.appendChild(contentNode);
+
+  app.appendChild(container);
+}
+
+async function showRegisterUserPage() {
+  const card = document.createElement("div");
+  card.className = "auth-card";
+
+  const h1 = document.createElement("h1");
+  h1.textContent = "Criar Conta";
+  card.appendChild(h1);
+
+  const errorAlert = document.createElement("div");
+  errorAlert.className = "auth-error-msg hidden";
+  card.appendChild(errorAlert);
+
+  const form = document.createElement("form");
+  form.onsubmit = (e) => e.preventDefault();
+
+  // Name
+  const nameGroup = document.createElement("div");
+  nameGroup.className = "auth-form-group";
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.id = "reg-name";
+  nameInput.className = "auth-input";
+  nameInput.placeholder = " ";
+  nameInput.required = true;
+  const nameLabel = document.createElement("label");
+  nameLabel.htmlFor = "reg-name";
+  nameLabel.textContent = "Nome Completo";
+  nameGroup.appendChild(nameInput);
+  nameGroup.appendChild(nameLabel);
+  form.appendChild(nameGroup);
+
+  // Email
+  const emailGroup = document.createElement("div");
+  emailGroup.className = "auth-form-group";
+  const emailInput = document.createElement("input");
+  emailInput.type = "email";
+  emailInput.id = "reg-email";
+  emailInput.className = "auth-input";
+  emailInput.placeholder = " ";
+  emailInput.required = true;
+  const emailLabel = document.createElement("label");
+  emailLabel.htmlFor = "reg-email";
+  emailLabel.textContent = "Email";
+  emailGroup.appendChild(emailInput);
+  emailGroup.appendChild(emailLabel);
+  form.appendChild(emailGroup);
+
+  // Password
+  const passGroup = document.createElement("div");
+  passGroup.className = "auth-form-group";
+  const passInput = document.createElement("input");
+  passInput.type = "password";
+  passInput.id = "reg-password";
+  passInput.className = "auth-input";
+  passInput.placeholder = " ";
+  passInput.required = true;
+  const passLabel = document.createElement("label");
+  passLabel.htmlFor = "reg-password";
+  passLabel.textContent = "Senha";
+  passGroup.appendChild(passInput);
+  passGroup.appendChild(passLabel);
+  form.appendChild(passGroup);
+
+  // Collapsible toggle for advanced device settings
+  const advToggle = document.createElement("button");
+  advToggle.type = "button";
+  advToggle.className = "auth-advanced-toggle";
+  advToggle.innerHTML = `Configurações de Dispositivo <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+  form.appendChild(advToggle);
+
+  const advFields = document.createElement("div");
+  advFields.className = "auth-advanced-fields";
+
+  const dados = obterDadosDispositivo();
+
+  // Pre-generate unique device details
+  const generatedToken = "tok_" + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 9);
+  let userDeviceName = "Navegador Web";
+  if (navigator.userAgent.includes("Windows")) userDeviceName = "PC Windows";
+  else if (navigator.userAgent.includes("Mac")) userDeviceName = "Macbook OS X";
+  else if (navigator.userAgent.includes("Android")) userDeviceName = "Smartphone Android";
+  else if (navigator.userAgent.includes("iPhone")) userDeviceName = "iPhone Apple";
+  /*
+    // Device Token input
+    const tokenGroup = document.createElement("div");
+    tokenGroup.className = "auth-form-group";
+    const tokenInput = document.createElement("input");
+    tokenInput.type = "text";
+    tokenInput.id = "reg-device-token";
+    tokenInput.className = "auth-input";
+    tokenInput.placeholder = " ";
+    tokenInput.value = generatedToken;
+    tokenInput.required = true;
+    const tokenLabel = document.createElement("label");
+    tokenLabel.htmlFor = "reg-device-token";
+    tokenLabel.textContent = "Token do Dispositivo";
+    tokenGroup.appendChild(tokenInput);
+    tokenGroup.appendChild(tokenLabel);
+    advFields.appendChild(tokenGroup);
+  
+    // Device Type input
+    const typeGroup = document.createElement("div");
+    typeGroup.className = "auth-form-group";
+    const typeInput = document.createElement("input");
+    typeInput.type = "text";
+    typeInput.id = "reg-device-type";
+    typeInput.className = "auth-input";
+    typeInput.placeholder = " ";
+    typeInput.value = "browser";
+    typeInput.required = true;
+    const typeLabel = document.createElement("label");
+    typeLabel.htmlFor = "reg-device-type";
+    typeLabel.textContent = "Tipo de Dispositivo";
+    typeGroup.appendChild(typeInput);
+    typeGroup.appendChild(typeLabel);
+    advFields.appendChild(typeGroup);
+  
+    // Device Name input
+    const devNameGroup = document.createElement("div");
+    devNameGroup.className = "auth-form-group";
+    const devNameInput = document.createElement("input");
+    devNameInput.type = "text";
+    devNameInput.id = "reg-device-name";
+    devNameInput.className = "auth-input";
+    devNameInput.placeholder = " ";
+    devNameInput.value = userDeviceName;
+    devNameInput.required = true;
+    const devNameLabel = document.createElement("label");
+    devNameLabel.htmlFor = "reg-device-name";
+    devNameLabel.textContent = "Nome do Dispositivo";
+    devNameGroup.appendChild(devNameInput);
+    devNameGroup.appendChild(devNameLabel);
+    advFields.appendChild(devNameGroup);*/
+
+  form.appendChild(advFields);
+
+  // Toggle toggle open click logic
+  advToggle.addEventListener("click", () => {
+    advToggle.classList.toggle("open");
+    advFields.classList.toggle("open");
+  });
+
+  const submitBtn = document.createElement("button");
+  submitBtn.type = "submit";
+  submitBtn.className = "auth-btn";
+  submitBtn.textContent = "Registrar-se";
+  form.appendChild(submitBtn);
+
+  card.appendChild(form);
+
+  const switchDiv = document.createElement("div");
+  switchDiv.className = "auth-switch";
+  switchDiv.innerHTML = `Já tem uma conta LuFlix? <a href="#actions/login">Entrar agora</a>.`;
+  card.appendChild(switchDiv);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    errorAlert.classList.add("hidden");
+    errorAlert.textContent = "";
+
+    const body = {
+      name: nameInput.value.trim(),
+      email: emailInput.value.trim(),
+      password: passInput.value.trim(),
+      device_token: generatedToken,
+      device_type: dados.tipo,
+      device_name: dados.nome
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/users/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Erro ao registrar.");
+
+      saveSession({
+        user_id: json.user_id,
+        name: body.name,
+        email: body.email,
+        device_token: body.device_token,
+        device_type: body.device_type,
+        device_name: body.device_name,
+      });
+
+      location.hash = "#movies";
+    } catch (err) {
+      errorAlert.textContent = err.message;
+      errorAlert.classList.remove("hidden");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  renderAuthPage(card);
+}
+
+async function showLoginPage() {
+  const card = document.createElement("div");
+  card.className = "auth-card";
+
+  const h1 = document.createElement("h1");
+  h1.textContent = "Entrar";
+  card.appendChild(h1);
+
+  const errorAlert = document.createElement("div");
+  errorAlert.className = "auth-error-msg hidden";
+  card.appendChild(errorAlert);
+
+  const form = document.createElement("form");
+  form.onsubmit = (e) => e.preventDefault();
+
+  // Email
+  const emailGroup = document.createElement("div");
+  emailGroup.className = "auth-form-group";
+  const emailInput = document.createElement("input");
+  emailInput.type = "email";
+  emailInput.id = "auth-email";
+  emailInput.className = "auth-input";
+  emailInput.placeholder = " ";
+  emailInput.required = true;
+  const emailLabel = document.createElement("label");
+  emailLabel.htmlFor = "auth-email";
+  emailLabel.textContent = "Email";
+  emailGroup.appendChild(emailInput);
+  emailGroup.appendChild(emailLabel);
+  form.appendChild(emailGroup);
+
+  // Password
+  const passGroup = document.createElement("div");
+  passGroup.className = "auth-form-group";
+  const passInput = document.createElement("input");
+  passInput.type = "password";
+  passInput.id = "auth-password";
+  passInput.className = "auth-input";
+  passInput.placeholder = " ";
+  passInput.required = true;
+  const passLabel = document.createElement("label");
+  passLabel.htmlFor = "auth-password";
+  passLabel.textContent = "Senha";
+  passGroup.appendChild(passInput);
+  passGroup.appendChild(passLabel);
+  form.appendChild(passGroup);
+
+  const submitBtn = document.createElement("button");
+  submitBtn.type = "submit";
+  submitBtn.className = "auth-btn";
+  submitBtn.textContent = "Entrar";
+  form.appendChild(submitBtn);
+
+  card.appendChild(form);
+
+  const switchDiv = document.createElement("div");
+  switchDiv.className = "auth-switch";
+  switchDiv.innerHTML = `Novo por aqui? <a href="#actions/register-user">Assine agora</a>.`;
+  card.appendChild(switchDiv);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    errorAlert.classList.add("hidden");
+    errorAlert.textContent = "";
+
+    const email = emailInput.value.trim();
+    const password = passInput.value.trim();
+
+    try {
+      const res = await fetch(`${API_BASE}/users/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Email ou senha incorretos.");
+
+      saveSession({
+        user_id: json.user_id,
+        name: json.name || email,
+        email: email,
+      });
+
+      location.hash = "#movies";
+    } catch (err) {
+      errorAlert.textContent = err.message;
+      errorAlert.classList.remove("hidden");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  renderAuthPage(card);
 }
 
 async function showSubscribeUserPage() {
@@ -1043,6 +2793,10 @@ async function showAddActorsPersonPage() {
 }
 
 async function showEditMoviePage(params) {
+  if (!currentUser) {
+    renderSection("Editar Filme", renderNotLoggedIn);
+    return;
+  }
   const id = getQueryParam(params, "id");
   const movies = await fetchItems("movies");
   renderSection("Editar Filme", () =>
@@ -1071,21 +2825,36 @@ async function showEditMoviePage(params) {
         },
       ],
       "Salvar alterações",
-      async (inputs) => {
+      async (inputs, feedback) => {
         const movieId = inputs.movie_id.value;
         if (!movieId) throw new Error("Selecione um filme.");
-        const body = new FormData();
-        if (inputs.title.value) body.append("title", inputs.title.value.trim());
-        if (inputs.release_year.value)
-          body.append("release_year", inputs.release_year.value);
-        if (inputs.duration.value)
-          body.append("duration", inputs.duration.value);
-        if (inputs.synopsis.value)
-          body.append("synopsis", inputs.synopsis.value.trim());
-        if (inputs.media.files[0]) body.append("media", inputs.media.files[0]);
+        
+        const payload = {};
+        if (inputs.title.value) payload.title = inputs.title.value.trim();
+        if (inputs.release_year.value) payload.release_year = inputs.release_year.value;
+        if (inputs.duration.value) payload.duration = inputs.duration.value;
+        if (inputs.synopsis.value) payload.synopsis = inputs.synopsis.value.trim();
+
+        if (inputs.media.files[0]) {
+          feedback.textContent = "Iniciando upload fatiado...";
+          payload.media_path = await uploadFileInChunks(inputs.media.files[0], "movies", (percentage) => {
+            if (percentage === 100) {
+              feedback.textContent = "Processando compressão HEVC (H.265)... Isso pode levar alguns segundos...";
+            } else {
+              feedback.textContent = `Enviando vídeo em fatias (${percentage}%)...`;
+            }
+          });
+        }
+
+        if (Object.keys(payload).length === 0) {
+          throw new Error("Informe pelo menos um campo para atualizar.");
+        }
+
+        feedback.textContent = "Salvando alterações do filme...";
         const res = await fetch(`${API_BASE}/catalog/movies/${movieId}`, {
           method: "PUT",
-          body,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || res.statusText);
@@ -1096,6 +2865,10 @@ async function showEditMoviePage(params) {
 }
 
 async function showDeleteMoviePage(params) {
+  if (!currentUser) {
+    renderSection("Excluir Filme", renderNotLoggedIn);
+    return;
+  }
   const id = getQueryParam(params, "id");
   const movies = await fetchItems("movies");
   renderSection("Excluir Filme", () =>
@@ -1129,6 +2902,10 @@ async function showDeleteMoviePage(params) {
 }
 
 async function showEditSeriePage(params) {
+  if (!currentUser) {
+    renderSection("Editar Série", renderNotLoggedIn);
+    return;
+  }
   const id = getQueryParam(params, "id");
   const series = await fetchItems("series");
   renderSection("Editar Série", () =>
@@ -1176,6 +2953,10 @@ async function showEditSeriePage(params) {
 }
 
 async function showDeleteSeriePage(params) {
+  if (!currentUser) {
+    renderSection("Excluir Série", renderNotLoggedIn);
+    return;
+  }
   const id = getQueryParam(params, "id");
   const series = await fetchItems("series");
   renderSection("Excluir Série", () =>
@@ -1209,6 +2990,10 @@ async function showDeleteSeriePage(params) {
 }
 
 async function showEditEpisodePage(params) {
+  if (!currentUser) {
+    renderSection("Editar Episódio", renderNotLoggedIn);
+    return;
+  }
   const id = getQueryParam(params, "id");
   renderSection("Editar Episódio", () =>
     renderForm(
@@ -1233,23 +3018,37 @@ async function showEditEpisodePage(params) {
         },
       ],
       "Salvar alterações",
-      async (inputs) => {
+      async (inputs, feedback) => {
         const episodeId = inputs.episode_id.value;
         if (!episodeId) throw new Error("Informe o ID do episódio.");
-        const form = new FormData();
-        if (inputs.episode_title.value)
-          form.append("episode_title", inputs.episode_title.value.trim());
-        if (inputs.episode_number.value)
-          form.append("episode_number", inputs.episode_number.value);
-        if (inputs.duration.value)
-          form.append("duration", inputs.duration.value);
-        if (inputs.synopsis.value)
-          form.append("episode_synopsis", inputs.synopsis.value.trim());
-        if (inputs.rating.value) form.append("rating", inputs.rating.value);
-        if (inputs.media.files[0]) form.append("media", inputs.media.files[0]);
+        
+        const payload = {};
+        if (inputs.episode_title.value) payload.title = inputs.episode_title.value.trim();
+        if (inputs.episode_number.value) payload.episode_number = inputs.episode_number.value;
+        if (inputs.duration.value) payload.duration = inputs.duration.value;
+        if (inputs.synopsis.value) payload.synopsis = inputs.synopsis.value.trim();
+        if (inputs.rating.value) payload.rating = inputs.rating.value;
+
+        if (inputs.media.files[0]) {
+          feedback.textContent = "Iniciando upload fatiado...";
+          payload.media_path = await uploadFileInChunks(inputs.media.files[0], "episodes", (percentage) => {
+            if (percentage === 100) {
+              feedback.textContent = "Processando compressão HEVC (H.265)... Isso pode levar alguns segundos...";
+            } else {
+              feedback.textContent = `Enviando vídeo em fatias (${percentage}%)...`;
+            }
+          });
+        }
+
+        if (Object.keys(payload).length === 0) {
+          throw new Error("Informe pelo menos um campo para atualizar.");
+        }
+
+        feedback.textContent = "Salvando alterações do episódio...";
         const res = await fetch(`${API_BASE}/catalog/episodes/${episodeId}`, {
           method: "PUT",
-          body: form,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || res.statusText);
@@ -1260,6 +3059,10 @@ async function showEditEpisodePage(params) {
 }
 
 async function showDeleteEpisodePage(params) {
+  if (!currentUser) {
+    renderSection("Excluir Episódio", renderNotLoggedIn);
+    return;
+  }
   const id = getQueryParam(params, "id");
   renderSection("Excluir Episódio", () =>
     renderForm(
@@ -1290,7 +3093,9 @@ async function showDeleteEpisodePage(params) {
 async function fetchItems(type) {
   const res = await fetch(`${API_BASE}/views/${type}`);
   const data = await safeJson(res);
-  return Array.isArray(data) ? data : [];
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.data)) return data.data;
+  return [];
 }
 
 async function safeJson(res) {
@@ -1309,6 +3114,164 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+async function showWatchPage(params) {
+  if (!currentUser) {
+    renderSection("Assistir", renderNotLoggedIn);
+    return;
+  }
+
+  const type = getQueryParam(params, "type"); // 'movies' or 'episodes'
+  const id = getQueryParam(params, "id");
+
+  if (!type || !id) {
+    app.innerHTML = `<div class="empty">Parâmetros inválidos para reprodução.</div>`;
+    return;
+  }
+
+  const lastSeriesId = sessionStorage.getItem("last_viewed_series_id");
+  const backHash = type === "movies" ? "#movies" : (lastSeriesId ? `#series/view?id=${lastSeriesId}` : "#series");
+  const backLabel = type === "movies" ? "Filmes" : "Série";
+
+  renderSection("Carregando Player...", async () => {
+    try {
+      const res = await fetch(`${API_BASE}/views/${type}?id=${id}`);
+      const data = await safeJson(res);
+      const items = data.data || [];
+      const item = items[0];
+
+      if (!item) {
+        return `<div class="empty">Item não encontrado.</div>`;
+      }
+
+      const title = getItemTitle(item, type);
+      const mediaPath = item.media_path;
+
+      const watchContainer = document.createElement("div");
+      watchContainer.className = "watch-container";
+
+      const backBtn = document.createElement("button");
+      backBtn.className = "back-link";
+      backBtn.innerHTML = `&larr; Voltar para ${backLabel}`;
+      backBtn.onclick = () => {
+        location.hash = backHash;
+      };
+      watchContainer.appendChild(backBtn);
+
+      const videoWrapper = document.createElement("div");
+      videoWrapper.className = "video-wrapper";
+
+      if (!mediaPath) {
+        videoWrapper.innerHTML = `
+          <div class="empty" style="height: 100%; display: flex; align-items: center; justify-content: center; text-align: center; flex-direction: column;">
+            <p style="font-size: 1.2rem; font-weight: bold; margin-bottom: 10px;">Vídeo Indisponível</p>
+            <p style="color: var(--muted); font-size: 0.95rem;">Este título não possui um arquivo de vídeo associado.</p>
+          </div>
+        `;
+      } else {
+        const video = document.createElement("video");
+        video.id = "hls-video-player";
+        video.className = "video-player";
+        video.controls = true;
+        video.autoplay = true;
+
+        videoWrapper.appendChild(video);
+
+        const videoSrc = `${API_ORIGIN}/${mediaPath}`;
+        
+        setTimeout(() => {
+          const player = document.getElementById("hls-video-player");
+          if (!player) return;
+
+          if (Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(videoSrc);
+            hls.attachMedia(player);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              player.play().catch(err => {
+                console.log("Autoplay bloqueado pelo navegador, aguardando clique do usuário:", err.message);
+              });
+            });
+            hls.on(Hls.Events.ERROR, function (event, data) {
+              if (data.fatal) {
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    console.log("Erro fatal de rede HLS, tentando recuperar...");
+                    hls.startLoad();
+                    break;
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    console.log("Erro fatal de mídia HLS, tentando recuperar...");
+                    hls.recoverMediaError();
+                    break;
+                  default:
+                    console.log("Erro fatal HLS irrecuperável:", data);
+                    break;
+                }
+              }
+            });
+          } else if (player.canPlayType("application/vnd.apple.mpegurl")) {
+            player.src = videoSrc;
+            player.addEventListener("loadedmetadata", () => {
+              player.play().catch(err => {
+                console.log("Autoplay bloqueado pelo navegador:", err.message);
+              });
+            });
+          }
+        }, 100);
+      }
+
+      watchContainer.appendChild(videoWrapper);
+
+      const infoSection = document.createElement("div");
+      infoSection.className = "watch-info";
+
+      const titleEl = document.createElement("h2");
+      titleEl.className = "watch-title";
+      titleEl.textContent = title;
+      infoSection.appendChild(titleEl);
+
+      const metaRow = document.createElement("div");
+      metaRow.className = "watch-meta";
+      
+      const yearSpan = document.createElement("span");
+      yearSpan.textContent = type === "movies" ? (item.ano_lancamento || "") : (item.release_year || "");
+      metaRow.appendChild(yearSpan);
+
+      const ratingSpan = document.createElement("span");
+      ratingSpan.textContent = `★ ${type === "movies" ? (item.nota || "0.0") : (item.rating || "0.0")}`;
+      metaRow.appendChild(ratingSpan);
+
+      const durationSpan = document.createElement("span");
+      const durationVal = type === "movies" ? (item.duracao || "") : (item.duration || "");
+      durationSpan.textContent = durationVal ? `${durationVal} min` : "";
+      metaRow.appendChild(durationSpan);
+
+      if (type === "episodes") {
+        const episodeInfo = document.createElement("span");
+        episodeInfo.style.color = "var(--accent)";
+        episodeInfo.style.fontWeight = "bold";
+        episodeInfo.textContent = `${item.serie_title || ""} - T${item.season_number}E${item.episode_number}`;
+        metaRow.appendChild(episodeInfo);
+      }
+
+      infoSection.appendChild(metaRow);
+
+      const synopsisEl = document.createElement("p");
+      synopsisEl.className = "watch-synopsis";
+      synopsisEl.textContent = type === "movies" ? (item.sinopse || "Sem sinopse disponível.") : (item.synopsis || "Sem sinopse disponível.");
+      infoSection.appendChild(synopsisEl);
+
+      watchContainer.appendChild(infoSection);
+
+      document.title = `${title} - LuFlix`;
+
+      return watchContainer;
+    } catch (err) {
+      console.error(err);
+      return `<div class="empty">Erro ao carregar o vídeo: ${escapeHtml(err.message)}</div>`;
+    }
+  });
 }
 
 router();

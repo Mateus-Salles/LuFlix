@@ -54,6 +54,22 @@ body {
   color: #fff;
   width: 220px;
 }
+.user-status {
+  margin-left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.95rem;
+  color: #fff;
+}
+.user-status button {
+  background: #222;
+  border: 1px solid #2a2a2a;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
 .container {
   padding: 28px 36px;
 }
@@ -63,8 +79,9 @@ body {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, 200px);
+  gap: 20px;
+  justify-content: center;
 }
 .card {
   background: linear-gradient(
@@ -76,6 +93,10 @@ body {
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.12s;
+  width: 200px;
+  height: 480px;
+  display: flex;
+  flex-direction: column;
 }
 .card:hover {
   transform: translateY(-6px);
@@ -83,18 +104,32 @@ body {
 .thumb {
   height: 260px;
   background: linear-gradient(180deg, #333, #222);
+  background-size: cover;
+  background-position: center;
   display: block;
+  flex-shrink: 0;
 }
 .meta {
-  padding: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
 }
 .title {
   margin: 0 0 6px;
   font-size: 15px;
+  line-height: 1.2;
+  height: 36px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 .meta-row {
   color: var(--muted);
   font-size: 13px;
+  margin-bottom: 10px;
 }
 .controls {
   display: flex;
@@ -194,6 +229,9 @@ body {
 
 /* responsive tweaks */
 @media (max-width: 760px) {
+  .card {
+    height: 400px;
+  }
   .thumb {
     height: 180px;
   }
@@ -204,3 +242,317 @@ body {
     width: 140px;
   }
 }
+
+/* --- Netflix Authentication Page Styles --- */
+
+.auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 120px);
+  padding: 20px 0;
+  position: relative;
+  z-index: 2;
+}
+
+.auth-bg-overlay {
+  position: fixed;
+  inset: 0;
+  background-image: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.4) 40%, rgba(0, 0, 0, 0.8) 100%), url('netflix_bg.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 1;
+}
+
+.auth-card {
+  background-color: rgba(0, 0, 0, 0.75);
+  border-radius: 8px;
+  padding: 60px 68px 40px;
+  width: 100%;
+  max-width: 450px;
+  min-height: 550px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  z-index: 3;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  animation: authFadeIn 0.4s ease-out;
+}
+
+@keyframes authFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.auth-card h1 {
+  color: #fff;
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 28px;
+}
+
+.auth-form-group {
+  position: relative;
+  margin-bottom: 16px;
+  width: 100%;
+}
+
+.auth-input {
+  width: 100%;
+  height: 50px;
+  background: #333;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  padding: 16px 20px 0;
+  font-size: 16px;
+  box-sizing: border-box;
+  transition: background 0.2s ease;
+}
+
+.auth-input:focus {
+  background: #454545;
+  outline: none;
+  border-bottom: 2px solid #e87c03; /* Netflix standard focus orange */
+}
+
+/* Floating Label Effect */
+.auth-form-group label {
+  position: absolute;
+  left: 20px;
+  top: 16px;
+  color: #8c8c8c;
+  font-size: 16px;
+  pointer-events: none;
+  transition: all 0.15s ease-out;
+}
+
+.auth-input:focus ~ label,
+.auth-input:not(:placeholder-shown) ~ label {
+  top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8c8c8c;
+}
+
+/* Omit standard placeholder space */
+.auth-input::placeholder {
+  color: transparent;
+}
+
+.auth-btn {
+  width: 100%;
+  height: 48px;
+  background-color: var(--accent); /* #e50914 */
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: 700;
+  margin: 24px 0 12px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.auth-btn:hover {
+  background-color: #c40812;
+}
+
+.auth-btn:disabled {
+  background-color: #551013;
+  color: #8c8c8c;
+  cursor: not-allowed;
+}
+
+.auth-switch {
+  color: #737373;
+  font-size: 15px;
+  margin-top: 16px;
+}
+
+.auth-switch a {
+  color: #fff;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
+/* Collapsible Advanced section */
+.auth-advanced-toggle {
+  background: none;
+  border: none;
+  color: #8c8c8c;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  margin-top: 15px;
+  padding: 0;
+  text-align: left;
+}
+
+.auth-advanced-toggle:hover {
+  text-decoration: underline;
+  color: #fff;
+}
+
+.auth-advanced-toggle svg {
+  margin-left: 5px;
+  transition: transform 0.2s ease;
+}
+
+.auth-advanced-toggle.open svg {
+  transform: rotate(180deg);
+}
+
+.auth-advanced-fields {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+  margin-top: 10px;
+}
+
+.auth-advanced-fields.open {
+  max-height: 300px;
+  transition: max-height 0.3s ease-in;
+}
+
+.auth-error-msg {
+  background: #e87c03;
+  color: white;
+  padding: 10px 15px;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-bottom: 20px;
+  animation: authFadeIn 0.3s ease-out;
+}
+
+/* Reset full-screen layout body helper */
+body.auth-page-active {
+  background: #000;
+}
+
+@media (max-width: 740px) {
+  .auth-container {
+    min-height: 100vh;
+    padding: 0;
+    align-items: flex-start;
+  }
+  .auth-card {
+    max-width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+    background-color: #000;
+    padding: 100px 30px 40px;
+  }
+  .auth-bg-overlay {
+    display: none;
+  }
+}
+
+/* Style for active favorited state button */
+.btn.favorited {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+
+/* --- HLS Video Player Page Styles --- */
+.watch-container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 10px 0 30px;
+}
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+  margin-bottom: 20px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 16px;
+  transition: color 0.2s;
+}
+.back-link:hover {
+  color: #fff;
+}
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  margin-bottom: 24px;
+  aspect-ratio: 16/9;
+}
+.video-player {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.watch-info {
+  margin-top: 20px;
+  background: var(--panel);
+  padding: 24px;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+}
+.watch-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 10px;
+  color: #fff;
+}
+.watch-meta {
+  display: flex;
+  gap: 15px;
+  color: var(--muted);
+  font-size: 15px;
+  margin-bottom: 15px;
+}
+.watch-synopsis {
+  font-size: 16px;
+  line-height: 1.6;
+  color: #ddd;
+  margin: 0;
+}
+
+.card .actions {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.card .btn {
+  padding: 6px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  flex: 1 1 calc(50% - 3px);
+  text-align: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+
+

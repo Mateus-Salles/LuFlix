@@ -47,7 +47,7 @@ async function registerUser(req, res) {
       await client.query("COMMIT");
     }
 
-    const user_id = result.rows[0]?.user_id ?? null;
+    const user_id = result.rows[0]?.user_id ? Number(result.rows[0].user_id) : null;
 
     return res
       .status(201)
@@ -125,4 +125,41 @@ async function subscribeUser(req, res) {
   }
 }
 
-module.exports = { registerUser, subscribeUser };
+/**
+ * POST /users/login
+ * Body: { email, password }
+ */
+async function loginUser(req, res) {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({
+      error: "Campos obrigatórios: email e password.",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT user_id, name, email FROM "users" WHERE email = $1 AND password = $2`,
+      [email, password],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: "Email ou senha incorretos." });
+    }
+
+    const user = result.rows[0];
+
+    return res.status(200).json({
+      message: "Login realizado com sucesso.",
+      user_id: Number(user.user_id),
+      name: user.name,
+      email: user.email,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { registerUser, subscribeUser, loginUser };
+
