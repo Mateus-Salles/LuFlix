@@ -1,19 +1,19 @@
 require('dotenv').config();
 
 const express = require('express');
-const path    = require('path');
-const routes  = require('./routes');
-const cors    = require('cors')
+const path = require('path');
+const routes = require('./routes');
+const cors = require('cors')
 
 const app = express();
 
 const corsOptions = {
-    origin: ['http://localhost:5500', 'http://127.0.0.1:5500'], // Libera exatamente a porta do seu front-end
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+  origin: ['http://localhost:5500', 'http://127.0.0.1:5500'], // Libera exatamente a porta do seu front-end
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 
-app.use(cors(corsOptions))
+app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 

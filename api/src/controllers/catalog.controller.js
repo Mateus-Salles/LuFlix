@@ -56,6 +56,8 @@ async function insertMovie(req, res) {
     release_year,
     content_rating_id,
     directors_id: rawDirectorsId,
+    actors_id: rawActorsId,
+    genres_id: rawGenresId,
     number_rating = 0,
     rating = 0,
     title,
@@ -67,6 +69,8 @@ async function insertMovie(req, res) {
   } = req.body;
 
   const directors_id = normalizeIds(rawDirectorsId).map(Number);
+  const actors_id = normalizeIds(rawActorsId).map(Number);
+  const genres_id = normalizeIds(rawGenresId).map(Number);
   const numericReleaseYear = Number(release_year);
   const numericContentRatingId = Number(content_rating_id);
   const numericDuration = Number(duration);
@@ -89,6 +93,20 @@ async function insertMovie(req, res) {
     return badRequest(
       res,
       "directors_id deve conter ids válidos e maiores que zero.",
+    );
+  }
+
+  if (actors_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(
+      res,
+      "actors_id deve conter ids válidos e maiores que zero.",
+    );
+  }
+
+  if (genres_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(
+      res,
+      "genres_id deve conter ids válidos e maiores que zero.",
     );
   }
 
@@ -171,16 +189,48 @@ async function insertMovie(req, res) {
       resolvedThumbPath = rawThumbPath;
     }
 
-    if (mediaPath || resolvedThumbPath) {
-      try {
-        const movieResult = await pool.query('SELECT movie_id FROM movies WHERE title = $1', [title]);
-        const insertedId = movieResult.rows[0]?.movie_id;
-        if (insertedId) {
+    let insertedId = null;
+    try {
+      const movieResult = await pool.query('SELECT movie_id FROM movies WHERE title = $1', [title]);
+      insertedId = movieResult.rows[0]?.movie_id;
+    } catch (errDb) {
+      console.error("Erro ao obter id do filme inserido:", errDb.message);
+    }
+
+    if (insertedId) {
+      if (actors_id.length > 0) {
+        try {
+          await pool.query(
+            `INSERT INTO "movie_cast" (movie_id, actor_id)
+             SELECT $1, actor_id FROM UNNEST($2::int[]) AS actors_data(actor_id)
+             ON CONFLICT DO NOTHING`,
+            [insertedId, actors_id]
+          );
+        } catch (errActors) {
+          console.error("Erro ao vincular atores ao filme:", errActors.message);
+        }
+      }
+
+      if (genres_id.length > 0) {
+        try {
+          await pool.query(
+            `INSERT INTO "movie_genres" (movie_id, genre_id)
+             SELECT $1, genre_id FROM UNNEST($2::int[]) AS genres_data(genre_id)
+             ON CONFLICT DO NOTHING`,
+            [insertedId, genres_id]
+          );
+        } catch (errGen) {
+          console.error("Erro ao vincular gêneros ao filme:", errGen.message);
+        }
+      }
+
+      if (mediaPath || resolvedThumbPath) {
+        try {
           const { setMediaEntry } = require('../utils/manifest');
           setMediaEntry('movies', insertedId, mediaPath, resolvedThumbPath);
+        } catch (errDb) {
+          console.error("Erro ao persistir media_path/thumb_path no manifesto de filme:", errDb.message);
         }
-      } catch (errDb) {
-        console.error("Erro ao persistir media_path/thumb_path no manifesto de filme:", errDb.message);
       }
     }
 
@@ -205,6 +255,21 @@ async function updateMovie(req, res) {
       res,
       "movie_id é obrigatório e deve ser um inteiro maior que zero.",
     );
+  
+  const directors_id = req.body.directors_id !== undefined ? normalizeIds(req.body.directors_id).map(Number) : null;
+  const actors_id = req.body.actors_id !== undefined ? normalizeIds(req.body.actors_id).map(Number) : null;
+  const genres_id = req.body.genres_id !== undefined ? normalizeIds(req.body.genres_id).map(Number) : null;
+
+  if (directors_id && directors_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(res, "directors_id deve conter ids válidos.");
+  }
+  if (actors_id && actors_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(res, "actors_id deve conter ids válidos.");
+  }
+  if (genres_id && genres_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(res, "genres_id deve conter ids válidos.");
+  }
+
   const allowed = [
     "title",
     "release_year",
@@ -224,14 +289,58 @@ async function updateMovie(req, res) {
       values.push(req.body[k]);
     }
   }
-  if (fields.length === 0 && !req.file && !req.body.media_path)
+  if (
+    fields.length === 0 &&
+    !req.file &&
+    !req.body.media_path &&
+    directors_id === null &&
+    actors_id === null &&
+    genres_id === null
+  ) {
     return badRequest(res, "Nenhum campo para atualizar.");
+  }
   
   try {
     if (fields.length > 0) {
       values.push(movie_id);
       const sql = `UPDATE movies SET ${fields.join(", ")} WHERE movie_id = $${idx}`;
       await pool.query(sql, values);
+    }
+
+    if (directors_id !== null) {
+      await pool.query('DELETE FROM "directors_movies" WHERE movie_id = $1', [movie_id]);
+      if (directors_id.length > 0) {
+        await pool.query(
+          `INSERT INTO "directors_movies" (movie_id, director_id)
+           SELECT $1, director_id FROM UNNEST($2::int[]) AS directors_data(director_id)
+           ON CONFLICT DO NOTHING`,
+          [movie_id, directors_id]
+        );
+      }
+    }
+
+    if (actors_id !== null) {
+      await pool.query('DELETE FROM "movie_cast" WHERE movie_id = $1', [movie_id]);
+      if (actors_id.length > 0) {
+        await pool.query(
+          `INSERT INTO "movie_cast" (movie_id, actor_id)
+           SELECT $1, actor_id FROM UNNEST($2::int[]) AS actors_data(actor_id)
+           ON CONFLICT DO NOTHING`,
+          [movie_id, actors_id]
+        );
+      }
+    }
+
+    if (genres_id !== null) {
+      await pool.query('DELETE FROM "movie_genres" WHERE movie_id = $1', [movie_id]);
+      if (genres_id.length > 0) {
+        await pool.query(
+          `INSERT INTO "movie_genres" (movie_id, genre_id)
+           SELECT $1, genre_id FROM UNNEST($2::int[]) AS genres_data(genre_id)
+           ON CONFLICT DO NOTHING`,
+          [movie_id, genres_id]
+        );
+      }
     }
     
     if (req.file) {
@@ -300,6 +409,13 @@ async function updateSerie(req, res) {
       res,
       "serie_id é obrigatório e deve ser um inteiro maior que zero.",
     );
+
+  const genres_id = req.body.genres_id !== undefined ? normalizeIds(req.body.genres_id).map(Number) : null;
+
+  if (genres_id && genres_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(res, "genres_id deve conter ids válidos.");
+  }
+
   const allowed = [
     "title",
     "release_year",
@@ -317,12 +433,29 @@ async function updateSerie(req, res) {
       values.push(req.body[k]);
     }
   }
-  if (fields.length === 0)
+
+  if (fields.length === 0 && genres_id === null)
     return badRequest(res, "Nenhum campo para atualizar.");
-  values.push(serie_id);
-  const sql = `UPDATE series SET ${fields.join(", ")} WHERE serie_id = $${idx}`;
+
   try {
-    await pool.query(sql, values);
+    if (fields.length > 0) {
+      values.push(serie_id);
+      const sql = `UPDATE series SET ${fields.join(", ")} WHERE serie_id = $${idx}`;
+      await pool.query(sql, values);
+    }
+
+    if (genres_id !== null) {
+      await pool.query('DELETE FROM "serie_genres" WHERE serie_id = $1', [serie_id]);
+      if (genres_id.length > 0) {
+        await pool.query(
+          `INSERT INTO "serie_genres" (serie_id, genre_id)
+           SELECT $1, genre_id FROM UNNEST($2::int[]) AS genres_data(genre_id)
+           ON CONFLICT DO NOTHING`,
+          [serie_id, genres_id]
+        );
+      }
+    }
+
     return res.status(200).json({ message: "Série atualizada com sucesso." });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -386,6 +519,17 @@ async function updateEpisode(req, res) {
       res,
       "episode_id é obrigatório e deve ser um inteiro maior que zero.",
     );
+  
+  const directors_id = req.body.directors_id !== undefined ? normalizeIds(req.body.directors_id).map(Number) : null;
+  const actors_id = req.body.actors_id !== undefined ? normalizeIds(req.body.actors_id).map(Number) : null;
+
+  if (directors_id && directors_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(res, "directors_id deve conter ids válidos.");
+  }
+  if (actors_id && actors_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(res, "actors_id deve conter ids válidos.");
+  }
+
   const allowed = ["title", "episode_number", "duration", "synopsis", "rating"];
   const fields = [];
   const values = [];
@@ -396,14 +540,45 @@ async function updateEpisode(req, res) {
       values.push(req.body[k]);
     }
   }
-  if (fields.length === 0 && !req.file && !req.body.media_path)
+  if (
+    fields.length === 0 &&
+    !req.file &&
+    !req.body.media_path &&
+    directors_id === null &&
+    actors_id === null
+  ) {
     return badRequest(res, "Nenhum campo para atualizar.");
+  }
   
   try {
     if (fields.length > 0) {
       values.push(episode_id);
       const sql = `UPDATE episodes SET ${fields.join(", ")} WHERE episode_id = $${idx}`;
       await pool.query(sql, values);
+    }
+
+    if (directors_id !== null) {
+      await pool.query('DELETE FROM "directors_episodes" WHERE episode_id = $1', [episode_id]);
+      if (directors_id.length > 0) {
+        await pool.query(
+          `INSERT INTO "directors_episodes" (episode_id, director_id)
+           SELECT $1, director_id FROM UNNEST($2::int[]) AS directors_data(director_id)
+           ON CONFLICT DO NOTHING`,
+          [episode_id, directors_id]
+        );
+      }
+    }
+
+    if (actors_id !== null) {
+      await pool.query('DELETE FROM "episode_cast" WHERE episode_id = $1', [episode_id]);
+      if (actors_id.length > 0) {
+        await pool.query(
+          `INSERT INTO "episode_cast" (episode_id, actor_id)
+           SELECT $1, actor_id FROM UNNEST($2::int[]) AS actors_data(actor_id)
+           ON CONFLICT DO NOTHING`,
+          [episode_id, actors_id]
+        );
+      }
     }
     
     if (req.file) {
@@ -477,11 +652,13 @@ async function insertSerie(req, res) {
   const {
     release_year,
     content_rating_id,
+    genres_id: rawGenresId,
     rating = 0,
     title,
     synopsis,
   } = req.body;
 
+  const genres_id = normalizeIds(rawGenresId).map(Number);
   const numericReleaseYear = Number(release_year);
   const numericContentRatingId = Number(content_rating_id);
 
@@ -497,6 +674,13 @@ async function insertSerie(req, res) {
     );
   }
 
+  if (genres_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(
+      res,
+      "genres_id deve conter ids válidos e maiores que zero.",
+    );
+  }
+
   try {
     await pool.query(
       `CALL pr_insert_movie_or_serie(
@@ -509,6 +693,30 @@ async function insertSerie(req, res) {
       )`,
       [release_year, content_rating_id, rating, title, synopsis],
     );
+
+    let insertedSerieId = null;
+    try {
+      const seriesResult = await pool.query(
+        'SELECT serie_id FROM series WHERE title = $1 ORDER BY serie_id DESC LIMIT 1',
+        [title]
+      );
+      insertedSerieId = seriesResult.rows[0]?.serie_id;
+    } catch (errDb) {
+      console.error("Erro ao obter id da série inserida:", errDb.message);
+    }
+
+    if (insertedSerieId && genres_id.length > 0) {
+      try {
+        await pool.query(
+          `INSERT INTO "serie_genres" (serie_id, genre_id)
+           SELECT $1, genre_id FROM UNNEST($2::int[]) AS genres_data(genre_id)
+           ON CONFLICT DO NOTHING`,
+          [insertedSerieId, genres_id]
+        );
+      } catch (errGen) {
+        console.error("Erro ao vincular gêneros à série:", errGen.message);
+      }
+    }
 
     return res
       .status(201)
@@ -536,6 +744,8 @@ async function insertEpisode(req, res) {
     release_year,
     content_rating_id,
     directors_id: rawDirectorsId,
+    actors_id: rawActorsId,
+    genres_id: rawGenresId,
     number_rating = 0,
     rating = 0,
     serie_id = null,
@@ -552,6 +762,8 @@ async function insertEpisode(req, res) {
   } = req.body;
 
   const directors_id = normalizeIds(rawDirectorsId).map(Number);
+  const actors_id = normalizeIds(rawActorsId).map(Number);
+  const genres_id = normalizeIds(rawGenresId).map(Number);
   const numericReleaseYear = Number(release_year);
   const numericContentRatingId = Number(content_rating_id);
   const numericDuration = Number(duration);
@@ -578,6 +790,20 @@ async function insertEpisode(req, res) {
     return badRequest(
       res,
       "directors_id deve conter ids válidos e maiores que zero.",
+    );
+  }
+
+  if (actors_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(
+      res,
+      "actors_id deve conter ids válidos e maiores que zero.",
+    );
+  }
+
+  if (genres_id.some((id) => !isPositiveInteger(id))) {
+    return badRequest(
+      res,
+      "genres_id deve conter ids válidos e maiores que zero.",
     );
   }
 
@@ -680,7 +906,7 @@ async function insertEpisode(req, res) {
 
     const { setMediaEntry } = require('../utils/manifest');
 
-    // If new series was created, set series thumbnail in manifest
+    // If new series was created, set series thumbnail in manifest and associate genres
     if (numericSerieId === null) {
       try {
         const seriesResult = await pool.query(
@@ -689,11 +915,21 @@ async function insertEpisode(req, res) {
         );
         const insertedSerieId = seriesResult.rows[0]?.serie_id;
         const resolvedSerieThumbPath = serieThumbFile ? getRelativeMediaPath(serieThumbFile.path) : serie_thumb_path;
-        if (insertedSerieId && resolvedSerieThumbPath) {
-          setMediaEntry('series', insertedSerieId, null, resolvedSerieThumbPath);
+        if (insertedSerieId) {
+          if (resolvedSerieThumbPath) {
+            setMediaEntry('series', insertedSerieId, null, resolvedSerieThumbPath);
+          }
+          if (genres_id.length > 0) {
+            await pool.query(
+              `INSERT INTO "serie_genres" (serie_id, genre_id)
+               SELECT $1, genre_id FROM UNNEST($2::int[]) AS genres_data(genre_id)
+               ON CONFLICT DO NOTHING`,
+              [insertedSerieId, genres_id]
+            );
+          }
         }
       } catch (errSerDb) {
-        console.error("Erro ao persistir miniatura no manifesto de série:", errSerDb.message);
+        console.error("Erro ao persistir miniatura/gêneros no manifesto de série:", errSerDb.message);
       }
     }
 
@@ -711,18 +947,37 @@ async function insertEpisode(req, res) {
       resolvedThumbPath = rawThumbPath;
     }
 
-    if (mediaPath || resolvedThumbPath) {
-      try {
-        const epResult = await pool.query(
-          'SELECT episode_id FROM episodes WHERE title = $1 ORDER BY episode_id DESC LIMIT 1',
-          [episode_title]
-        );
-        const insertedId = epResult.rows[0]?.episode_id;
-        if (insertedId) {
-          setMediaEntry('episodes', insertedId, mediaPath, resolvedThumbPath);
+    let insertedId = null;
+    try {
+      const epResult = await pool.query(
+        'SELECT episode_id FROM episodes WHERE title = $1 ORDER BY episode_id DESC LIMIT 1',
+        [episode_title]
+      );
+      insertedId = epResult.rows[0]?.episode_id;
+    } catch (errDb) {
+      console.error("Erro ao obter id do episódio inserido:", errDb.message);
+    }
+
+    if (insertedId) {
+      if (actors_id.length > 0) {
+        try {
+          await pool.query(
+            `INSERT INTO "episode_cast" (episode_id, actor_id)
+             SELECT $1, actor_id FROM UNNEST($2::int[]) AS actors_data(actor_id)
+             ON CONFLICT DO NOTHING`,
+            [insertedId, actors_id]
+          );
+        } catch (errActors) {
+          console.error("Erro ao vincular atores ao episódio:", errActors.message);
         }
-      } catch (errDb) {
-        console.error("Erro ao persistir media_path/thumb_path no manifesto de episódio:", errDb.message);
+      }
+
+      if (mediaPath || resolvedThumbPath) {
+        try {
+          setMediaEntry('episodes', insertedId, mediaPath, resolvedThumbPath);
+        } catch (errDb) {
+          console.error("Erro ao persistir media_path/thumb_path no manifesto de episódio:", errDb.message);
+        }
       }
     }
 
@@ -1119,7 +1374,17 @@ async function handleUploadChunk(req, res) {
   }
 }
 
+async function getGenres(req, res) {
+  try {
+    const result = await pool.query('SELECT genre_id, name FROM "genres" ORDER BY name ASC');
+    return res.status(200).json({ data: result.rows });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
+  getGenres,
   insertMovie,
   insertSerie,
   insertEpisode,

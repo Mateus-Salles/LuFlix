@@ -9,12 +9,18 @@ const { getMediaManifest } = require('../utils/manifest');
 async function getMovies(req, res) {
   const { id, title, rating_min, rating_max, release_year } = req.query;
 
-  let query  = `SELECT * FROM vw_show_movies_data WHERE 1=1`;
+  let query  = `
+    SELECT vw.*,
+      (SELECT ARRAY_TO_STRING(ARRAY_AGG(director_id), ',') FROM directors_movies dm WHERE dm.movie_id = vw.id_filme) AS directors_id,
+      (SELECT ARRAY_TO_STRING(ARRAY_AGG(actor_id), ',') FROM movie_cast mc WHERE mc.movie_id = vw.id_filme) AS actors_id,
+      (SELECT ARRAY_TO_STRING(ARRAY_AGG(genre_id), ',') FROM movie_genres mg WHERE mg.movie_id = vw.id_filme) AS genres_id
+    FROM vw_show_movies_data vw WHERE 1=1
+  `;
   const params = [];
 
   if (id) {
     params.push(Number(id));
-    query += ` AND id_filme = $${params.length}`;
+    query += ` AND vw.id_filme = $${params.length}`;
   }
 
   if (title) {
@@ -77,12 +83,16 @@ async function getMovies(req, res) {
 async function getSeries(req, res) {
   const { id, title, rating_min, rating_max, release_year } = req.query;
 
-  let query  = `SELECT * FROM vw_show_series_data WHERE 1=1`;
+  let query  = `
+    SELECT vw.*,
+      (SELECT ARRAY_TO_STRING(ARRAY_AGG(genre_id), ',') FROM serie_genres sg WHERE sg.serie_id = vw.serie_id) AS genres_id
+    FROM vw_show_series_data vw WHERE 1=1
+  `;
   const params = [];
 
   if (id) {
     params.push(Number(id));
-    query += ` AND serie_id = $${params.length}`;
+    query += ` AND vw.serie_id = $${params.length}`;
   }
 
   if (title) {
@@ -178,7 +188,10 @@ async function getEpisodes(req, res) {
       ep.episode_number,
       sea.season_number,
       ser.title AS serie_title,
-      ser.release_year
+      ser.release_year,
+      ser.serie_id,
+      (SELECT ARRAY_TO_STRING(ARRAY_AGG(director_id), ',') FROM directors_episodes de WHERE de.episode_id = ep.episode_id) AS directors_id,
+      (SELECT ARRAY_TO_STRING(ARRAY_AGG(actor_id), ',') FROM episode_cast ec WHERE ec.episode_id = ep.episode_id) AS actors_id
     FROM "episodes" ep
     JOIN "seasons" sea ON ep.season_id = sea.season_id
     JOIN "series" ser ON sea.serie_id = ser.serie_id
@@ -228,6 +241,7 @@ async function getEpisodes(req, res) {
     
     // Mesclar media_path e thumb_path do manifesto
     const manifest = getMediaManifest('episodes');
+    const seriesManifest = getMediaManifest('series');
     const rows = result.rows.map(row => {
       const entry = manifest[String(row.episode_id)];
       let media_path = null;
@@ -238,6 +252,12 @@ async function getEpisodes(req, res) {
           thumb_path = entry.thumb_path || null;
         } else {
           media_path = entry;
+        }
+      }
+      if (!thumb_path && row.serie_id) {
+        const seriesEntry = seriesManifest[String(row.serie_id)];
+        if (seriesEntry) {
+          thumb_path = typeof seriesEntry === 'object' ? seriesEntry.thumb_path : seriesEntry;
         }
       }
       return {

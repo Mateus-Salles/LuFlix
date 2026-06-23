@@ -148,15 +148,46 @@ async function getDetailedFavorites(req, res) {
 
     const { getMediaManifest } = require('../utils/manifest');
     const movieManifest = getMediaManifest('movies');
+    const seriesManifest = getMediaManifest('series');
     
-    const movies = moviesResult.rows.map(row => ({
-      ...row,
-      media_path: movieManifest[String(row.id_filme)] || null
-    }));
+    const movies = moviesResult.rows.map(row => {
+      const entry = movieManifest[String(row.id_filme)];
+      let media_path = null;
+      let thumb_path = null;
+      if (entry) {
+        if (typeof entry === 'object') {
+          media_path = entry.media_path || null;
+          thumb_path = entry.thumb_path || null;
+        } else {
+          media_path = entry;
+        }
+      }
+      return {
+        ...row,
+        media_path,
+        thumb_path
+      };
+    });
+
+    const series = seriesResult.rows.map(row => {
+      const entry = seriesManifest[String(row.serie_id)];
+      let thumb_path = null;
+      if (entry) {
+        if (typeof entry === 'object') {
+          thumb_path = entry.thumb_path || null;
+        } else {
+          thumb_path = entry;
+        }
+      }
+      return {
+        ...row,
+        thumb_path
+      };
+    });
 
     return res.status(200).json({
       movies,
-      series: seriesResult.rows
+      series
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });

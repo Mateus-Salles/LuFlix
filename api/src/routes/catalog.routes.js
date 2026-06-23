@@ -13,6 +13,7 @@ const {
   updateEpisode,
   deleteEpisode,
   handleUploadChunk,
+  getGenres,
 } = require("../controllers/catalog.controller");
 const {
   uploadMovie,
@@ -51,6 +52,7 @@ router.put("/episodes/:id", optionalUpload(uploadEpisode), updateEpisode);
 router.delete("/episodes/:id", deleteEpisode);
 
 // Metadados
+router.get("/genres", getGenres);
 router.post("/genres", insertContentGenres);
 router.post("/cast", insertContentCast);
 router.post("/directors", insertContentDirectors);

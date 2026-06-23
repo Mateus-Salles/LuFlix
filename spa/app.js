@@ -1,6 +1,5 @@
-const API_BASE = "https://distress-reword-cannon.ngrok-free.dev";
-//const API_ORIGIN = "https://distress-reword-cannon.ngrok-free.dev";
-const API_ORIGIN = API_BASE;
+const API_BASE = "http://127.0.0.1:3000/api/v1";
+const API_ORIGIN = "http://127.0.0.1:3000";
 const USER_STORAGE_KEY = "luflix_current_user";
 
 const routes = {
@@ -224,7 +223,7 @@ async function showHistory() {
         thumb.className = "thumb";
         thumb.style.display = "flex";
         thumb.style.flexDirection = "column";
-        const imagePath = item.thumb_path || item.media_path;
+        const imagePath = item.thumb_path || (item.media_path && !item.media_path.endsWith('.m3u8') ? item.media_path : null);
         if (imagePath) {
           thumb.style.backgroundImage = `url(${API_ORIGIN}/${imagePath})`;
         }
@@ -618,7 +617,7 @@ async function showActionsPage(params) {
 
       try {
         if (mode === "add") {
-          renderAddForm(val, formWrapper);
+          await renderAddForm(val, formWrapper);
         } else if (mode === "edit") {
           await renderEditForm(val, formWrapper);
         } else if (mode === "delete") {
@@ -633,8 +632,19 @@ async function showActionsPage(params) {
   });
 }
 
-function renderAddForm(type, parent) {
+async function renderAddForm(type, parent) {
   parent.innerHTML = "";
+
+  let genresList = [];
+  try {
+    const genresRes = await fetch(`${API_BASE}/catalog/genres`);
+    const genresJson = await safeJson(genresRes);
+    genresList = genresJson.data || [];
+  } catch (err) {
+    console.error("Erro ao carregar gêneros:", err);
+  }
+  const genreOptions = genresList.map(g => ({ value: g.genre_id, label: g.name }));
+
   if (type === "movie") {
     const fields = [
       { id: "title", label: "Título", placeholder: "Nome do filme" },
@@ -654,6 +664,13 @@ function renderAddForm(type, parent) {
         ]
       },
       { id: "directors", label: "IDs de diretores (vírgula)", placeholder: "1,2" },
+      { id: "actors", label: "IDs de atores (vírgula)", placeholder: "1,2" },
+      {
+        id: "genres",
+        type: "checkbox-group",
+        label: "Gêneros",
+        options: genreOptions
+      },
       { id: "synopsis", label: "Sinopse", type: "textarea" },
       { id: "media", label: "Arquivo de mídia (Vídeo)", type: "file", accept: "video/*" },
       { id: "thumb", label: "Imagem de Miniatura (Opcional)", type: "file", accept: "image/*" }
@@ -664,6 +681,8 @@ function renderAddForm(type, parent) {
       const duration = inputs.duration.value.trim();
       const content_rating_id = inputs.content_rating.value;
       const directors = inputs.directors.value.split(",").map(v => v.trim()).filter(Boolean);
+      const actors = inputs.actors.value.split(",").map(v => v.trim()).filter(Boolean);
+      const genres = inputs.genres.value;
       const synopsis = inputs.synopsis.value.trim();
       const media = inputs.media.files[0];
       const thumbFile = inputs.thumb.files[0];
@@ -685,6 +704,8 @@ function renderAddForm(type, parent) {
       formData.append("synopsis", synopsis);
       formData.append("media_path", media_path);
       directors.forEach(id => formData.append("directors_id[]", id));
+      actors.forEach(id => formData.append("actors_id[]", id));
+      genres.forEach(id => formData.append("genres_id[]", id));
 
       const lastExtractedThumb = sessionStorage.getItem("last_extracted_thumb");
       if (lastExtractedThumb) {
@@ -760,6 +781,36 @@ function renderAddForm(type, parent) {
     serieThumbInput.accept = "image/*";
     seriesFieldsContainer.appendChild(serieThumbInput);
 
+    seriesFieldsContainer.appendChild(createLabel("Gêneros da Série"));
+    const serieGenresContainer = document.createElement("div");
+    serieGenresContainer.style.display = "flex";
+    serieGenresContainer.style.flexWrap = "wrap";
+    serieGenresContainer.style.gap = "10px";
+    serieGenresContainer.style.margin = "10px 0 15px 0";
+
+    genreOptions.forEach(option => {
+      const wrap = document.createElement("label");
+      wrap.style.display = "inline-flex";
+      wrap.style.alignItems = "center";
+      wrap.style.gap = "6px";
+      wrap.style.cursor = "pointer";
+      wrap.style.fontWeight = "normal";
+      wrap.style.background = "rgba(255, 255, 255, 0.05)";
+      wrap.style.padding = "6px 12px";
+      wrap.style.borderRadius = "4px";
+      wrap.style.border = "1px solid rgba(255, 255, 255, 0.1)";
+
+      const chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.value = option.value;
+      chk.className = "serie-genre-checkbox";
+
+      wrap.appendChild(chk);
+      wrap.appendChild(document.createTextNode(option.label));
+      serieGenresContainer.appendChild(wrap);
+    });
+    seriesFieldsContainer.appendChild(serieGenresContainer);
+
     formNode.appendChild(seriesFieldsContainer);
 
     const toggleSeriesFields = () => {
@@ -829,6 +880,13 @@ function renderAddForm(type, parent) {
     directorsInput.placeholder = "Ex: 1,2";
     formNode.appendChild(directorsInput);
 
+    formNode.appendChild(createLabel("IDs de atores (vírgula)"));
+    const actorsInput = document.createElement("input");
+    actorsInput.type = "text";
+    actorsInput.id = "ep-actors";
+    actorsInput.placeholder = "Ex: 1,2";
+    formNode.appendChild(actorsInput);
+
     formNode.appendChild(createLabel("Arquivo de mídia (Vídeo)"));
     const mediaInput = document.createElement("input");
     mediaInput.type = "file";
@@ -868,6 +926,7 @@ function renderAddForm(type, parent) {
         const duration = durationInput.value.trim();
         const content_rating_id = contentRatingSelect.value;
         const directors = directorsInput.value.split(",").map((v) => v.trim()).filter(Boolean);
+        const actors = actorsInput.value.split(",").map((v) => v.trim()).filter(Boolean);
         const media = mediaInput.files[0];
         const epThumbFile = epThumbInput.files[0];
         const serieThumbFile = serieThumbInput.files[0];
@@ -878,10 +937,12 @@ function renderAddForm(type, parent) {
 
         let serie_title = null;
         let serie_synopsis = null;
+        let selectedGenres = [];
 
         if (!serieId) {
           serie_title = serieTitleInput.value.trim();
           serie_synopsis = serieSynopsisInput.value.trim();
+          selectedGenres = Array.from(serieGenresContainer.querySelectorAll(".serie-genre-checkbox:checked")).map(chk => chk.value);
           if (!serie_title || !serie_synopsis) {
             throw new Error("Para cadastrar uma nova série, preencha o título e sinopse da série.");
           }
@@ -906,6 +967,7 @@ function renderAddForm(type, parent) {
         formData.append("duration", duration);
         formData.append("media_path", media_path);
         directors.forEach(id => formData.append("directors_id[]", id));
+        actors.forEach(id => formData.append("actors_id[]", id));
 
         if (serieId) {
           formData.append("serie_id", serieId);
@@ -915,6 +977,7 @@ function renderAddForm(type, parent) {
           if (serieThumbFile) {
             formData.append("serie_thumb", serieThumbFile);
           }
+          selectedGenres.forEach(id => formData.append("genres_id[]", id));
         }
 
         const lastExtractedThumb = sessionStorage.getItem("last_extracted_thumb");
@@ -1020,6 +1083,16 @@ async function renderEditForm(type, parent) {
 
   if (type === "movie") {
     const movies = await fetchItems("movies");
+    let genresList = [];
+    try {
+      const genresRes = await fetch(`${API_BASE}/catalog/genres`);
+      const genresJson = await safeJson(genresRes);
+      genresList = genresJson.data || [];
+    } catch (err) {
+      console.error("Erro ao carregar gêneros:", err);
+    }
+    const genreOptions = genresList.map(g => ({ value: g.genre_id, label: g.name }));
+
     const select = document.createElement("select");
     select.innerHTML = '<option value="">-- Selecione o Filme para editar --</option>';
     movies.forEach(m => {
@@ -1048,6 +1121,15 @@ async function renderEditForm(type, parent) {
           { id: "title", label: "Título", value: movie.titulo || movie.title },
           { id: "release_year", label: "Ano de lançamento", type: "number", value: movie.ano_lancamento },
           { id: "duration", label: "Duração (min)", type: "number", value: movie.duracao },
+          { id: "directors", label: "IDs de diretores (vírgula)", value: movie.directors_id || "" },
+          { id: "actors", label: "IDs de atores (vírgula)", value: movie.actors_id || "" },
+          {
+            id: "genres",
+            type: "checkbox-group",
+            label: "Gêneros",
+            options: genreOptions,
+            value: movie.genres_id || ""
+          },
           { id: "synopsis", label: "Sinopse", type: "textarea", value: movie.sinopse },
           { id: "media", label: "Mídia (opcional, HLS)", type: "file", accept: "video/*" }
         ],
@@ -1057,6 +1139,15 @@ async function renderEditForm(type, parent) {
           if (inputs.title.value) payload.title = inputs.title.value.trim();
           if (inputs.release_year.value) payload.release_year = inputs.release_year.value;
           if (inputs.duration.value) payload.duration = inputs.duration.value;
+          if (inputs.directors.value !== undefined) {
+            payload.directors_id = inputs.directors.value.split(",").map(v => v.trim()).filter(Boolean);
+          }
+          if (inputs.actors.value !== undefined) {
+            payload.actors_id = inputs.actors.value.split(",").map(v => v.trim()).filter(Boolean);
+          }
+          if (inputs.genres.value !== undefined) {
+            payload.genres_id = inputs.genres.value;
+          }
           if (inputs.synopsis.value) payload.synopsis = inputs.synopsis.value.trim();
 
           if (inputs.media.files[0]) {
@@ -1112,6 +1203,8 @@ async function renderEditForm(type, parent) {
           { id: "episode_title", label: "Título", value: ep.episode_title || ep.title },
           { id: "episode_number", label: "Número do episódio", type: "number", value: ep.episode_number },
           { id: "duration", label: "Duração (min)", type: "number", value: ep.duration },
+          { id: "directors", label: "IDs de diretores (vírgula)", value: ep.directors_id || "" },
+          { id: "actors", label: "IDs de atores (vírgula)", value: ep.actors_id || "" },
           { id: "synopsis", label: "Sinopse", type: "textarea", value: ep.synopsis },
           { id: "rating", label: "Nota", type: "number", value: ep.rating },
           { id: "media", label: "Mídia (opcional, HLS)", type: "file", accept: "video/*" }
@@ -1122,6 +1215,12 @@ async function renderEditForm(type, parent) {
           if (inputs.episode_title.value) payload.title = inputs.episode_title.value.trim();
           if (inputs.episode_number.value) payload.episode_number = inputs.episode_number.value;
           if (inputs.duration.value) payload.duration = inputs.duration.value;
+          if (inputs.directors.value !== undefined) {
+            payload.directors_id = inputs.directors.value.split(",").map(v => v.trim()).filter(Boolean);
+          }
+          if (inputs.actors.value !== undefined) {
+            payload.actors_id = inputs.actors.value.split(",").map(v => v.trim()).filter(Boolean);
+          }
           if (inputs.synopsis.value) payload.synopsis = inputs.synopsis.value.trim();
           if (inputs.rating.value) payload.rating = inputs.rating.value;
 
@@ -1510,7 +1609,7 @@ function renderCards(items = [], type) {
     card.className = "card";
     const thumb = document.createElement("div");
     thumb.className = "thumb";
-    const imagePath = item.thumb_path || item.media_path;
+    const imagePath = item.thumb_path || (item.media_path && !item.media_path.endsWith('.m3u8') ? item.media_path : null);
     if (imagePath)
       thumb.style.backgroundImage = `url(${API_ORIGIN}/${imagePath})`;
     const meta = document.createElement("div");
@@ -1729,6 +1828,47 @@ function renderForm(title, fields, submitLabel, onSubmit) {
         opt.textContent = option.label;
         input.appendChild(opt);
       });
+    } else if (field.type === "checkbox-group") {
+      const container = document.createElement("div");
+      container.style.display = "flex";
+      container.style.flexWrap = "wrap";
+      container.style.gap = "10px";
+      container.style.margin = "10px 0";
+
+      (field.options || []).forEach((option) => {
+        const wrap = document.createElement("label");
+        wrap.style.display = "inline-flex";
+        wrap.style.alignItems = "center";
+        wrap.style.gap = "6px";
+        wrap.style.cursor = "pointer";
+        wrap.style.fontWeight = "normal";
+        wrap.style.background = "rgba(255, 255, 255, 0.05)";
+        wrap.style.padding = "6px 12px";
+        wrap.style.borderRadius = "4px";
+        wrap.style.border = "1px solid rgba(255, 255, 255, 0.1)";
+
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.value = option.value;
+        wrap.appendChild(chk);
+        wrap.appendChild(document.createTextNode(option.label));
+        container.appendChild(wrap);
+      });
+
+      Object.defineProperty(container, "value", {
+        get: () => {
+          return Array.from(container.querySelectorAll("input[type=checkbox]:checked")).map(chk => chk.value);
+        },
+        set: (val) => {
+          const vals = val ? (Array.isArray(val) ? val.map(String) : String(val).split(",").map(v => v.trim())) : [];
+          container.querySelectorAll("input[type=checkbox]").forEach(chk => {
+            chk.checked = vals.includes(String(chk.value));
+          });
+        },
+        configurable: true
+      });
+
+      input = container;
     } else {
       input = document.createElement("input");
       input.type = field.type || "text";
@@ -1937,6 +2077,11 @@ async function showAddMoviePage() {
             placeholder: "1,2",
           },
           {
+            id: "actors",
+            label: "IDs de atores (vírgula)",
+            placeholder: "1,2",
+          },
+          {
             id: "synopsis",
             label: "Sinopse",
             type: "textarea"
@@ -1955,6 +2100,10 @@ async function showAddMoviePage() {
           const duration = inputs.duration.value.trim();
           const content_rating_id = inputs.content_rating ? inputs.content_rating.value : "1";
           const directors = inputs.directors.value
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean);
+          const actors = inputs.actors.value
             .split(",")
             .map((v) => v.trim())
             .filter(Boolean);
@@ -1993,6 +2142,7 @@ async function showAddMoviePage() {
               duration,
               content_rating_id,
               directors_id: directors,
+              actors_id: actors,
               synopsis,
               media_path,
             }),
@@ -2178,6 +2328,14 @@ async function showAddEpisodePage() {
       directorsInput.placeholder = "Ex: 1,2";
       form.appendChild(directorsInput);
 
+      // 9.5 Atores
+      form.appendChild(createLabel("IDs de atores (vírgula)"));
+      const actorsInput = document.createElement("input");
+      actorsInput.type = "text";
+      actorsInput.id = "ep-actors";
+      actorsInput.placeholder = "Ex: 1,2";
+      form.appendChild(actorsInput);
+
       // 10. Arquivo de mídia
       form.appendChild(createLabel("Arquivo de mídia"));
       const mediaInput = document.createElement("input");
@@ -2212,6 +2370,10 @@ async function showAddEpisodePage() {
           const duration = durationInput.value.trim();
           const content_rating_id = contentRatingSelect.value;
           const directors = directorsInput.value
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean);
+          const actors = actorsInput.value
             .split(",")
             .map((v) => v.trim())
             .filter(Boolean);
@@ -2250,6 +2412,7 @@ async function showAddEpisodePage() {
             episode_synopsis,
             duration,
             directors_id: directors,
+            actors_id: actors,
             media_path,
           };
 
@@ -3087,6 +3250,8 @@ async function showEditMoviePage(params) {
         { id: "title", label: "Título" },
         { id: "release_year", label: "Ano de lançamento", type: "number" },
         { id: "duration", label: "Duração", type: "number" },
+        { id: "directors", label: "IDs de diretores (vírgula)", placeholder: "Ex: 1,2" },
+        { id: "actors", label: "IDs de atores (vírgula)", placeholder: "Ex: 1,2" },
         { id: "synopsis", label: "Sinopse", type: "textarea" },
         {
           id: "media",
@@ -3104,6 +3269,12 @@ async function showEditMoviePage(params) {
         if (inputs.title.value) payload.title = inputs.title.value.trim();
         if (inputs.release_year.value) payload.release_year = inputs.release_year.value;
         if (inputs.duration.value) payload.duration = inputs.duration.value;
+        if (inputs.directors.value) {
+          payload.directors_id = inputs.directors.value.split(",").map(v => v.trim()).filter(Boolean);
+        }
+        if (inputs.actors.value) {
+          payload.actors_id = inputs.actors.value.split(",").map(v => v.trim()).filter(Boolean);
+        }
         if (inputs.synopsis.value) payload.synopsis = inputs.synopsis.value.trim();
 
         if (inputs.media.files[0]) {
@@ -3279,6 +3450,8 @@ async function showEditEpisodePage(params) {
         { id: "episode_title", label: "Título" },
         { id: "episode_number", label: "Número do episódio", type: "number" },
         { id: "duration", label: "Duração", type: "number" },
+        { id: "directors", label: "IDs de diretores (vírgula)", placeholder: "Ex: 1,2" },
+        { id: "actors", label: "IDs de atores (vírgula)", placeholder: "Ex: 1,2" },
         { id: "synopsis", label: "Sinopse", type: "textarea" },
         { id: "rating", label: "Nota", type: "number" },
         {
@@ -3297,6 +3470,12 @@ async function showEditEpisodePage(params) {
         if (inputs.episode_title.value) payload.title = inputs.episode_title.value.trim();
         if (inputs.episode_number.value) payload.episode_number = inputs.episode_number.value;
         if (inputs.duration.value) payload.duration = inputs.duration.value;
+        if (inputs.directors.value) {
+          payload.directors_id = inputs.directors.value.split(",").map(v => v.trim()).filter(Boolean);
+        }
+        if (inputs.actors.value) {
+          payload.actors_id = inputs.actors.value.split(",").map(v => v.trim()).filter(Boolean);
+        }
         if (inputs.synopsis.value) payload.synopsis = inputs.synopsis.value.trim();
         if (inputs.rating.value) payload.rating = inputs.rating.value;
 
@@ -3535,7 +3714,12 @@ async function showWatchPage(params) {
           if (!player) return;
 
           if (Hls.isSupported()) {
-            const hls = new Hls();
+            const hls = new Hls({
+              xhrSetup: function (xhr, url) {
+                // Toda vez que o player for buscar um pedaço do vídeo, ele injeta o bypass do Ngrok
+                xhr.setRequestHeader('ngrok-skip-browser-warning', 'true');
+              }
+            });
             hls.loadSource(videoSrc);
             hls.attachMedia(player);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
