@@ -41,14 +41,6 @@ coverage/
 # Tests
 __tests__/
 **/__tests__/
-*.test.js
-*.test.jsx
-*.test.ts
-*.test.tsx
-*.spec.js
-*.spec.jsx
-*.spec.ts
-*.spec.tsx
 test-results/
 test-output/
 .jest/

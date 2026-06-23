@@ -1,3 +1,4 @@
+// Nodemon configuration integration
 require('dotenv').config();
 
 const app  = require('./app');

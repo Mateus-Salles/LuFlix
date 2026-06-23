@@ -1,5 +1,6 @@
-const API_BASE = "http://127.0.0.1:3000/api/v1";
-const API_ORIGIN = "http://127.0.0.1:3000";
+const API_BASE = "https://distress-reword-cannon.ngrok-free.dev";
+//const API_ORIGIN = "https://distress-reword-cannon.ngrok-free.dev";
+const API_ORIGIN = API_BASE;
 const USER_STORAGE_KEY = "luflix_current_user";
 
 const routes = {
@@ -37,6 +38,8 @@ const routes = {
   "#actions/edit-episodes": () => { location.hash = "#actions/edit"; },
   "#actions/delete-episode": () => { location.hash = "#actions/delete"; },
   "#actions/delete-episodes": () => { location.hash = "#actions/delete"; },
+  "#history": showHistory,
+  "#favorites": showFavorites,
   "#watch": showWatchPage,
 };
 
@@ -44,6 +47,13 @@ const app = document.getElementById("app");
 const searchInput = document.getElementById("search");
 let currentUser = loadSession();
 let userFavorites = [];
+let playerCleanup = null;
+
+window.addEventListener("beforeunload", () => {
+  if (playerCleanup) {
+    playerCleanup();
+  }
+});
 
 window.addEventListener("hashchange", router);
 searchInput.addEventListener("input", () => router());
@@ -89,6 +99,10 @@ function isItemFavorited(id, type) {
 }
 
 async function router() {
+  if (playerCleanup) {
+    playerCleanup();
+    playerCleanup = null;
+  }
   document.title = "LuFlix Admin";
   const hash = location.hash || "#movies";
   const [route, query] = hash.split("?");
@@ -161,6 +175,206 @@ function showSeries() {
   });
 }
 
+function isCompletelyViewed(watchedMinutes, watchedSeconds, totalDurationMinutes) {
+  if (!totalDurationMinutes) return false;
+  const watchedTotalSeconds = (watchedMinutes * 60) + watchedSeconds;
+  const durationTotalSeconds = totalDurationMinutes * 60;
+  // Completely viewed if they watched at least 95% or are within 30 seconds of the end
+  return watchedTotalSeconds >= Math.min(durationTotalSeconds * 0.95, durationTotalSeconds - 30);
+}
+
+async function showHistory() {
+  const navHistory = document.getElementById("nav-history");
+  if (navHistory) navHistory.classList.add("active");
+
+  if (!currentUser) {
+    renderSection("Histórico de Visualização", renderNotLoggedIn);
+    return;
+  }
+
+  renderSection("Histórico de Visualização", async () => {
+    try {
+      const res = await fetch(`${API_BASE}/history/${currentUser.user_id}`);
+      const json = await safeJson(res);
+      const items = json.data || [];
+
+      if (items.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "Seu histórico de visualização está vazio.";
+        return empty;
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "grid";
+
+      items.forEach((item) => {
+        const card = document.createElement("div");
+        card.className = "card";
+
+        // Calculate progress percentage
+        const totalDurationMin = item.movie_duration || item.episode_duration || 0;
+        const totalDurationSec = totalDurationMin * 60;
+        const watchedSec = (item.watched_minutes * 60) + item.watched_seconds;
+        const percentage = totalDurationSec ? Math.min(100, Math.round((watchedSec / totalDurationSec) * 100)) : 0;
+        const isComp = isCompletelyViewed(item.watched_minutes, item.watched_seconds, totalDurationMin);
+
+        // Thumbnail
+        const thumb = document.createElement("div");
+        thumb.className = "thumb";
+        thumb.style.display = "flex";
+        thumb.style.flexDirection = "column";
+        const imagePath = item.thumb_path || item.media_path;
+        if (imagePath) {
+          thumb.style.backgroundImage = `url(${API_ORIGIN}/${imagePath})`;
+        }
+
+        // Premium progress bar inside/below thumbnail
+        const progressContainer = document.createElement("div");
+        progressContainer.style.background = "rgba(255, 255, 255, 0.2)";
+        progressContainer.style.height = "6px";
+        progressContainer.style.width = "100%";
+        progressContainer.style.marginTop = "auto"; // Push to bottom of thumb
+        progressContainer.style.overflow = "hidden";
+        progressContainer.style.position = "relative";
+
+        const progressFill = document.createElement("div");
+        progressFill.style.background = isComp ? "#2ecc71" : "var(--accent)"; // Green if complete, Red if partial
+        progressFill.style.height = "100%";
+        progressFill.style.width = `${percentage}%`;
+        progressContainer.appendChild(progressFill);
+
+        thumb.appendChild(progressContainer);
+
+        // Metadata
+        const meta = document.createElement("div");
+        meta.className = "meta";
+
+        const title = document.createElement("h3");
+        title.className = "title";
+
+        // Title formatting
+        if (item.movie_id) {
+          title.textContent = item.movie_title || "Filme";
+        } else {
+          title.textContent = `${item.serie_title || "Série"} - T${item.season_number}E${item.episode_number}: ${item.episode_title}`;
+        }
+
+        const subtitle = document.createElement("div");
+        subtitle.className = "meta-row";
+
+        if (isComp) {
+          subtitle.innerHTML = `<span style="color: #2ecc71; font-weight: bold;">Completamente visto</span> • ${totalDurationMin} min`;
+        } else {
+          subtitle.innerHTML = `Parou em <span style="color: #ff9f43; font-weight: bold;">${item.watched_minutes}:${String(item.watched_seconds).padStart(2, '0')}</span> / ${totalDurationMin} min`;
+        }
+
+        meta.appendChild(title);
+        meta.appendChild(subtitle);
+
+        // Actions / Controls
+        const controls = document.createElement("div");
+        controls.className = "actions";
+
+        const playBtn = makeBtn(isComp ? "Assistir de novo" : "Retomar");
+        playBtn.classList.add("primary");
+        playBtn.style.flex = "1";
+        controls.appendChild(playBtn);
+
+        meta.appendChild(controls);
+        card.appendChild(thumb);
+        card.appendChild(meta);
+
+        // Entire card is clickable to play/resume
+        card.onclick = () => {
+          const type = item.movie_id ? "movies" : "episodes";
+          const id = item.movie_id || item.episode_id;
+          if (isComp) {
+            location.hash = `#watch?type=${type}&id=${id}`;
+          } else {
+            const start = Math.max(0, watchedSec - 10);
+            location.hash = `#watch?type=${type}&id=${id}&start=${start}`;
+          }
+        };
+
+        grid.appendChild(card);
+      });
+
+      return grid;
+    } catch (error) {
+      console.error(error);
+      const errEl = document.createElement("div");
+      errEl.className = "empty";
+      errEl.textContent = `Erro ao carregar histórico: ${error.message}`;
+      return errEl;
+    }
+  });
+}
+
+async function showFavorites() {
+  const navFavorites = document.getElementById("nav-favorites");
+  if (navFavorites) navFavorites.classList.add("active");
+
+  if (!currentUser) {
+    renderSection("Favoritos", renderNotLoggedIn);
+    return;
+  }
+
+  renderSection("Meus Favoritos", async () => {
+    try {
+      const res = await fetch(`${API_BASE}/favorites/details/${currentUser.user_id}`);
+      const json = await safeJson(res);
+
+      const movies = json.movies || [];
+      const series = json.series || [];
+
+      if (movies.length === 0 && series.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "Você ainda não possui itens favoritados.";
+        return empty;
+      }
+
+      const container = document.createElement("div");
+
+      if (movies.length > 0) {
+        const moviesTitle = document.createElement("h3");
+        moviesTitle.className = "section-title";
+        moviesTitle.style.borderBottom = "1px solid #333";
+        moviesTitle.style.paddingBottom = "8px";
+        moviesTitle.style.marginTop = "20px";
+        moviesTitle.textContent = "Filmes Favoritos";
+        container.appendChild(moviesTitle);
+
+        const moviesGrid = renderCards(movies, "movies");
+        container.appendChild(moviesGrid);
+      }
+
+      if (series.length > 0) {
+        const seriesTitle = document.createElement("h3");
+        seriesTitle.className = "section-title";
+        seriesTitle.style.borderBottom = "1px solid #333";
+        seriesTitle.style.paddingBottom = "8px";
+        seriesTitle.style.marginTop = "40px";
+        seriesTitle.textContent = "Séries Favoritas";
+        container.appendChild(seriesTitle);
+
+        const seriesGrid = renderCards(series, "series");
+        container.appendChild(seriesGrid);
+      }
+
+      return container;
+    } catch (error) {
+      console.error(error);
+      const errEl = document.createElement("div");
+      errEl.className = "empty";
+      errEl.textContent = `Erro ao carregar favoritos: ${error.message}`;
+      return errEl;
+    }
+  });
+}
+
+
 async function showSeriesViewPage(params) {
   const id = getQueryParam(params, "id");
   if (!id) {
@@ -225,7 +439,7 @@ async function showSeriesViewPage(params) {
 
       const metaRow = document.createElement("div");
       metaRow.className = "watch-meta";
-      
+
       const ratingSpan = document.createElement("span");
       ratingSpan.textContent = `★ ${series.nota || "0.0"}`;
       metaRow.appendChild(ratingSpan);
@@ -441,7 +655,8 @@ function renderAddForm(type, parent) {
       },
       { id: "directors", label: "IDs de diretores (vírgula)", placeholder: "1,2" },
       { id: "synopsis", label: "Sinopse", type: "textarea" },
-      { id: "media", label: "Arquivo de mídia", type: "file", accept: "video/*" }
+      { id: "media", label: "Arquivo de mídia (Vídeo)", type: "file", accept: "video/*" },
+      { id: "thumb", label: "Imagem de Miniatura (Opcional)", type: "file", accept: "image/*" }
     ];
     const form = renderForm("Cadastrar Novo Filme", fields, "Enviar filme", async (inputs, feedback) => {
       const title = inputs.title.value.trim();
@@ -451,9 +666,10 @@ function renderAddForm(type, parent) {
       const directors = inputs.directors.value.split(",").map(v => v.trim()).filter(Boolean);
       const synopsis = inputs.synopsis.value.trim();
       const media = inputs.media.files[0];
+      const thumbFile = inputs.thumb.files[0];
 
       if (!title || !release_year || !duration || directors.length === 0 || !media || !synopsis) {
-        throw new Error("Preencha todos os campos obrigatórios e envie mídia.");
+        throw new Error("Preencha todos os campos obrigatórios e envie o arquivo de mídia.");
       }
 
       feedback.textContent = "Iniciando upload fatiado...";
@@ -461,10 +677,28 @@ function renderAddForm(type, parent) {
         feedback.textContent = percentage === 100 ? "Processando compressão HEVC..." : `Enviando vídeo (${percentage}%)...`;
       });
 
+      const formData = new FormData();
+      formData.append("title", title);
+      formData.append("release_year", release_year);
+      formData.append("duration", duration);
+      formData.append("content_rating_id", content_rating_id);
+      formData.append("synopsis", synopsis);
+      formData.append("media_path", media_path);
+      directors.forEach(id => formData.append("directors_id[]", id));
+
+      const lastExtractedThumb = sessionStorage.getItem("last_extracted_thumb");
+      if (lastExtractedThumb) {
+        formData.append("extracted_thumb_path", lastExtractedThumb);
+        sessionStorage.removeItem("last_extracted_thumb");
+      }
+
+      if (thumbFile) {
+        formData.append("thumb", thumbFile);
+      }
+
       const res = await fetch(`${API_BASE}/catalog/movies`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, release_year, duration, content_rating_id, directors_id: directors, synopsis, media_path })
+        body: formData
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || res.statusText);
@@ -518,6 +752,13 @@ function renderAddForm(type, parent) {
     serieSynopsisInput.id = "ep-serie-synopsis";
     serieSynopsisInput.placeholder = "Sinopse da nova série";
     seriesFieldsContainer.appendChild(serieSynopsisInput);
+
+    seriesFieldsContainer.appendChild(createLabel("Imagem de Miniatura da Série (Obrigatória)"));
+    const serieThumbInput = document.createElement("input");
+    serieThumbInput.type = "file";
+    serieThumbInput.id = "ep-serie-thumb";
+    serieThumbInput.accept = "image/*";
+    seriesFieldsContainer.appendChild(serieThumbInput);
 
     formNode.appendChild(seriesFieldsContainer);
 
@@ -588,12 +829,19 @@ function renderAddForm(type, parent) {
     directorsInput.placeholder = "Ex: 1,2";
     formNode.appendChild(directorsInput);
 
-    formNode.appendChild(createLabel("Arquivo de mídia"));
+    formNode.appendChild(createLabel("Arquivo de mídia (Vídeo)"));
     const mediaInput = document.createElement("input");
     mediaInput.type = "file";
     mediaInput.id = "ep-media";
     mediaInput.accept = "video/*";
     formNode.appendChild(mediaInput);
+
+    formNode.appendChild(createLabel("Imagem de Miniatura do Episódio (Opcional)"));
+    const epThumbInput = document.createElement("input");
+    epThumbInput.type = "file";
+    epThumbInput.id = "ep-thumb";
+    epThumbInput.accept = "image/*";
+    formNode.appendChild(epThumbInput);
 
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -621,6 +869,8 @@ function renderAddForm(type, parent) {
         const content_rating_id = contentRatingSelect.value;
         const directors = directorsInput.value.split(",").map((v) => v.trim()).filter(Boolean);
         const media = mediaInput.files[0];
+        const epThumbFile = epThumbInput.files[0];
+        const serieThumbFile = serieThumbInput.files[0];
 
         if (!season_number || !episode_title || !episode_synopsis || !release_year || !duration || directors.length === 0 || !media) {
           throw new Error("Preencha todos os campos obrigatórios do episódio e envie o vídeo.");
@@ -635,6 +885,9 @@ function renderAddForm(type, parent) {
           if (!serie_title || !serie_synopsis) {
             throw new Error("Para cadastrar uma nova série, preencha o título e sinopse da série.");
           }
+          if (!serieThumbFile) {
+            throw new Error("Para cadastrar uma nova série, o arquivo de miniatura da série é obrigatório.");
+          }
         }
 
         feedback.textContent = "Iniciando upload fatiado...";
@@ -643,28 +896,40 @@ function renderAddForm(type, parent) {
         });
 
         feedback.textContent = "Salvando informações do episódio...";
-        const payload = {
-          release_year,
-          content_rating_id,
-          season_number,
-          episode_title,
-          episode_synopsis,
-          duration,
-          directors_id: directors,
-          media_path,
-        };
+
+        const formData = new FormData();
+        formData.append("release_year", release_year);
+        formData.append("content_rating_id", content_rating_id);
+        formData.append("season_number", season_number);
+        formData.append("episode_title", episode_title);
+        formData.append("episode_synopsis", episode_synopsis);
+        formData.append("duration", duration);
+        formData.append("media_path", media_path);
+        directors.forEach(id => formData.append("directors_id[]", id));
 
         if (serieId) {
-          payload.serie_id = serieId;
+          formData.append("serie_id", serieId);
         } else {
-          payload.serie_title = serie_title;
-          payload.serie_synopsis = serie_synopsis;
+          formData.append("serie_title", serie_title);
+          formData.append("serie_synopsis", serie_synopsis);
+          if (serieThumbFile) {
+            formData.append("serie_thumb", serieThumbFile);
+          }
+        }
+
+        const lastExtractedThumb = sessionStorage.getItem("last_extracted_thumb");
+        if (lastExtractedThumb) {
+          formData.append("extracted_thumb_path", lastExtractedThumb);
+          sessionStorage.removeItem("last_extracted_thumb");
+        }
+
+        if (epThumbFile) {
+          formData.append("thumb", epThumbFile);
         }
 
         const res = await fetch(`${API_BASE}/catalog/episodes`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: formData
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || res.statusText);
@@ -1245,8 +1510,9 @@ function renderCards(items = [], type) {
     card.className = "card";
     const thumb = document.createElement("div");
     thumb.className = "thumb";
-    if (item.media_path)
-      thumb.style.backgroundImage = `url(${API_ORIGIN}/${item.media_path})`;
+    const imagePath = item.thumb_path || item.media_path;
+    if (imagePath)
+      thumb.style.backgroundImage = `url(${API_ORIGIN}/${imagePath})`;
     const meta = document.createElement("div");
     meta.className = "meta";
     const title = document.createElement("h3");
@@ -1288,7 +1554,7 @@ function renderCards(items = [], type) {
       controls.appendChild(deleteBtn);
     }
 
-    if (type === "movies" || type === "episodes" || type === "series") {
+    if (type === "movies" || type === "series") {
       const itemId = getItemId(item, type);
       const isFav = isItemFavorited(itemId, type);
       const favoriteBtn = makeBtn(isFav ? "★ Favoritado" : "☆ Favoritar");
@@ -1513,12 +1779,12 @@ async function uploadFileInChunks(file, type, progressCallback) {
   const chunkSize = 10 * 1024 * 1024; // 10MB pedaços
   const totalChunks = Math.ceil(file.size / chunkSize);
   const uploadId = "up_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
-  
+
   for (let i = 0; i < totalChunks; i++) {
     const start = i * chunkSize;
     const end = Math.min(start + chunkSize, file.size);
     const chunkBlob = file.slice(start, end);
-    
+
     const formData = new FormData();
     formData.append("uploadId", uploadId);
     formData.append("chunkIndex", i);
@@ -1526,27 +1792,32 @@ async function uploadFileInChunks(file, type, progressCallback) {
     formData.append("filename", file.name);
     formData.append("type", type);
     formData.append("media", chunkBlob, file.name);
-    
+
     let attempt = 0;
     const maxAttempts = 3;
     let success = false;
-    
+
     while (attempt < maxAttempts && !success) {
       try {
         const res = await fetch(`${API_BASE}/catalog/upload-chunk`, {
           method: "POST",
           body: formData,
         });
-        
+
         if (!res.ok) {
           const errData = await res.json();
           throw new Error(errData.error || `Erro HTTP ${res.status}`);
         }
-        
+
         const data = await res.json();
         success = true;
-        
+
         if (i === totalChunks - 1 && data.status === "completed") {
+          if (data.extracted_thumb_path) {
+            sessionStorage.setItem("last_extracted_thumb", data.extracted_thumb_path);
+          } else {
+            sessionStorage.removeItem("last_extracted_thumb");
+          }
           return data.media_path;
         }
       } catch (err) {
@@ -1558,7 +1829,7 @@ async function uploadFileInChunks(file, type, progressCallback) {
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
-    
+
     if (progressCallback) {
       const percentage = Math.round(((i + 1) / totalChunks) * 100);
       progressCallback(percentage);
@@ -2828,7 +3099,7 @@ async function showEditMoviePage(params) {
       async (inputs, feedback) => {
         const movieId = inputs.movie_id.value;
         if (!movieId) throw new Error("Selecione um filme.");
-        
+
         const payload = {};
         if (inputs.title.value) payload.title = inputs.title.value.trim();
         if (inputs.release_year.value) payload.release_year = inputs.release_year.value;
@@ -3021,7 +3292,7 @@ async function showEditEpisodePage(params) {
       async (inputs, feedback) => {
         const episodeId = inputs.episode_id.value;
         if (!episodeId) throw new Error("Informe o ID do episódio.");
-        
+
         const payload = {};
         if (inputs.episode_title.value) payload.title = inputs.episode_title.value.trim();
         if (inputs.episode_number.value) payload.episode_number = inputs.episode_number.value;
@@ -3159,6 +3430,7 @@ async function showWatchPage(params) {
       };
       watchContainer.appendChild(backBtn);
 
+      let start = getQueryParam(params, "start");
       const videoWrapper = document.createElement("div");
       videoWrapper.className = "video-wrapper";
 
@@ -3176,10 +3448,88 @@ async function showWatchPage(params) {
         video.controls = true;
         video.autoplay = true;
 
+        // Apply start time once metadata or play starts
+        let hasSought = false;
+        const applyStartTime = () => {
+          if (start && !hasSought) {
+            hasSought = true;
+            video.currentTime = Number(start);
+          }
+        };
+
+        video.addEventListener("loadedmetadata", applyStartTime);
+        video.addEventListener("play", applyStartTime);
+
+        // Progress tracking logic
+        let lastSavedTime = 0;
+        let saveIntervalId = null;
+
+        const saveProgress = async () => {
+          const currentTime = video.currentTime;
+          if (Math.abs(currentTime - lastSavedTime) < 1 && currentTime !== video.duration && currentTime !== 0) {
+            return;
+          }
+
+          const minutes = Math.floor(currentTime / 60);
+          const seconds = Math.floor(currentTime % 60);
+
+          try {
+            await fetch(`${API_BASE}/history`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                user_id: currentUser.user_id,
+                movie_id: type === "movies" ? Number(id) : null,
+                episode_id: type === "episodes" ? Number(id) : null,
+                watched_minutes: minutes,
+                watched_seconds: seconds
+              })
+            });
+            lastSavedTime = currentTime;
+          } catch (err) {
+            console.error("Erro ao salvar progresso de exibição:", err);
+          }
+        };
+
+        let hasStarted = false;
+        video.addEventListener("play", () => {
+          if (!hasStarted) {
+            hasStarted = true;
+            saveProgress();
+          }
+          if (!saveIntervalId) {
+            saveIntervalId = setInterval(saveProgress, 5000);
+          }
+        });
+
+        video.addEventListener("pause", () => {
+          if (saveIntervalId) {
+            clearInterval(saveIntervalId);
+            saveIntervalId = null;
+          }
+          saveProgress();
+        });
+
+        video.addEventListener("ended", () => {
+          if (saveIntervalId) {
+            clearInterval(saveIntervalId);
+            saveIntervalId = null;
+          }
+          saveProgress();
+        });
+
+        playerCleanup = () => {
+          if (saveIntervalId) {
+            clearInterval(saveIntervalId);
+            saveIntervalId = null;
+          }
+          saveProgress();
+        };
+
         videoWrapper.appendChild(video);
 
         const videoSrc = `${API_ORIGIN}/${mediaPath}`;
-        
+
         setTimeout(() => {
           const player = document.getElementById("hls-video-player");
           if (!player) return;
@@ -3233,7 +3583,7 @@ async function showWatchPage(params) {
 
       const metaRow = document.createElement("div");
       metaRow.className = "watch-meta";
-      
+
       const yearSpan = document.createElement("span");
       yearSpan.textContent = type === "movies" ? (item.ano_lancamento || "") : (item.release_year || "");
       metaRow.appendChild(yearSpan);
@@ -3263,6 +3613,236 @@ async function showWatchPage(params) {
       infoSection.appendChild(synopsisEl);
 
       watchContainer.appendChild(infoSection);
+
+      // Seção de review do usuário
+      const reviewSection = document.createElement("div");
+      reviewSection.className = "review-section-container";
+
+      const reviewBox = document.createElement("div");
+      reviewBox.className = "review-box";
+      reviewBox.style.marginTop = "0";
+
+      const starsTitle = document.createElement("h3");
+      starsTitle.style.margin = "0 0 12px 0";
+      starsTitle.style.fontSize = "16px";
+      starsTitle.style.color = "#fff";
+      starsTitle.textContent = "Sua Avaliação:";
+      reviewBox.appendChild(starsTitle);
+
+      const starsContainer = document.createElement("div");
+      starsContainer.className = "stars-container";
+
+      let selectedRating = 0;
+      const stars = [];
+      for (let i = 1; i <= 5; i++) {
+        const star = document.createElement("span");
+        star.className = "star";
+        star.innerHTML = "&#9734;"; // ☆
+        star.dataset.value = i;
+
+        star.addEventListener("mouseover", () => {
+          highlightStars(i);
+        });
+
+        star.addEventListener("mouseout", () => {
+          highlightStars(selectedRating);
+        });
+
+        star.addEventListener("click", () => {
+          selectedRating = i;
+          highlightStars(selectedRating);
+        });
+
+        starsContainer.appendChild(star);
+        stars.push(star);
+      }
+
+      function highlightStars(count) {
+        stars.forEach((s, idx) => {
+          if (idx < count) {
+            s.innerHTML = "&#9733;"; // ★
+            s.classList.add("lit");
+          } else {
+            s.innerHTML = "&#9734;"; // ☆
+            s.classList.remove("lit");
+          }
+        });
+      }
+      reviewBox.appendChild(starsContainer);
+
+      const descLabel = document.createElement("label");
+      descLabel.className = "review-label";
+      descLabel.innerHTML = 'Descrição <span style="color: var(--muted); font-weight: normal; font-size: 13px;">(Opcional)</span>';
+      reviewBox.appendChild(descLabel);
+
+      const descTextarea = document.createElement("textarea");
+      descTextarea.className = "review-textarea";
+      descTextarea.placeholder = "Escreva sua avaliação (opcional)...";
+      reviewBox.appendChild(descTextarea);
+
+      const submitBtn = document.createElement("button");
+      submitBtn.className = "btn primary";
+      submitBtn.textContent = "Enviar Review";
+
+      submitBtn.onclick = async () => {
+        if (selectedRating === 0) {
+          alert("Por favor, selecione uma nota de 1 a 5 estrelas.");
+          return;
+        }
+
+        const body = {
+          user_id: currentUser.user_id,
+          rating: selectedRating,
+          comment: descTextarea.value.trim() || null,
+          movie_id: type === "movies" ? Number(id) : null,
+          episode_id: type === "episodes" ? Number(id) : null,
+        };
+
+        submitBtn.disabled = true;
+        try {
+          const res = await fetch(`${API_BASE}/reviews`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const json = await res.json();
+          if (!res.ok) {
+            throw new Error(json.error || res.statusText || "Erro ao salvar review.");
+          }
+
+          alert(json.message || "Review cadastrada com sucesso!");
+          selectedRating = 0;
+          highlightStars(0);
+          descTextarea.value = "";
+          loadReviews(1);
+        } catch (error) {
+          alert(error.message);
+        } finally {
+          submitBtn.disabled = false;
+        }
+      };
+
+      reviewBox.appendChild(submitBtn);
+      reviewSection.appendChild(reviewBox);
+
+      // Seção de lista de reviews abaixo
+      const reviewsListContainer = document.createElement("div");
+      reviewsListContainer.className = "reviews-list-container";
+
+      const reviewsTitle = document.createElement("h3");
+      reviewsTitle.className = "reviews-list-title";
+      reviewsTitle.textContent = "Avaliações dos Usuários";
+      reviewsListContainer.appendChild(reviewsTitle);
+
+      const reviewsGrid = document.createElement("div");
+      reviewsGrid.className = "reviews-grid";
+      reviewsListContainer.appendChild(reviewsGrid);
+
+      const paginationContainer = document.createElement("div");
+      paginationContainer.className = "reviews-pagination";
+      reviewsListContainer.appendChild(paginationContainer);
+
+      reviewSection.appendChild(reviewsListContainer);
+
+      let currentPage = 1;
+      const reviewsLimit = 10;
+
+      async function loadReviews(page) {
+        reviewsGrid.innerHTML = '<div class="empty">Carregando avaliações...</div>';
+        paginationContainer.innerHTML = "";
+
+        const queryParam = type === "movies" ? `movie_id=${id}` : `episode_id=${id}`;
+
+        try {
+          const res = await fetch(`${API_BASE}/reviews?${queryParam}&page=${page}&limit=${reviewsLimit}`);
+          if (!res.ok) throw new Error("Erro ao buscar reviews.");
+
+          const json = await res.json();
+          const reviews = json.data || [];
+          const total = json.total || 0;
+
+          reviewsGrid.innerHTML = "";
+
+          if (reviews.length === 0) {
+            reviewsGrid.innerHTML = '<div class="empty" style="padding: 15px 0;">Este título ainda não possui avaliações.</div>';
+            return;
+          }
+
+          reviews.forEach(rev => {
+            const revCard = document.createElement("div");
+            revCard.className = "review-card";
+
+            const revHeader = document.createElement("div");
+            revHeader.className = "review-card-header";
+
+            const revUser = document.createElement("span");
+            revUser.className = "review-card-user";
+            revUser.textContent = rev.user_name || "Usuário Anônimo";
+            revHeader.appendChild(revUser);
+
+            // Stars for rating in static format
+            const revStars = document.createElement("div");
+            revStars.className = "review-card-stars";
+            for (let s = 1; s <= 5; s++) {
+              const starSpan = document.createElement("span");
+              starSpan.className = "star-static";
+              starSpan.innerHTML = s <= rev.rating ? "&#9733;" : "&#9734;";
+              if (s <= rev.rating) {
+                starSpan.classList.add("lit");
+              }
+              revStars.appendChild(starSpan);
+            }
+            revHeader.appendChild(revStars);
+
+            revCard.appendChild(revHeader);
+
+            if (rev.comment) {
+              const revComment = document.createElement("p");
+              revComment.className = "review-card-comment";
+              revComment.textContent = rev.comment;
+              revCard.appendChild(revComment);
+            }
+
+            reviewsGrid.appendChild(revCard);
+          });
+
+          // Render pagination controls
+          const totalPages = Math.ceil(total / reviewsLimit);
+          if (totalPages > 1) {
+            currentPage = page;
+
+            // Previous Page button
+            const prevBtn = document.createElement("button");
+            prevBtn.className = "btn pagination-btn";
+            prevBtn.innerHTML = "&larr; Anterior";
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => loadReviews(currentPage - 1);
+            paginationContainer.appendChild(prevBtn);
+
+            // Page indicator
+            const pageIndicator = document.createElement("span");
+            pageIndicator.className = "pagination-indicator";
+            pageIndicator.textContent = `Página ${currentPage} de ${totalPages}`;
+            paginationContainer.appendChild(pageIndicator);
+
+            // Next Page button
+            const nextBtn = document.createElement("button");
+            nextBtn.className = "btn pagination-btn";
+            nextBtn.innerHTML = "Próxima &rarr;";
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => loadReviews(currentPage + 1);
+            paginationContainer.appendChild(nextBtn);
+          }
+
+        } catch (err) {
+          reviewsGrid.innerHTML = `<div class="empty" style="color: var(--accent);">Erro ao carregar avaliações: ${err.message}</div>`;
+        }
+      }
+
+      // Load initial reviews
+      loadReviews(1);
+
+      watchContainer.appendChild(reviewSection);
 
       document.title = `${title} - LuFlix`;
 

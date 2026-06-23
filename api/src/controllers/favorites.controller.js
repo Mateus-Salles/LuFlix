@@ -120,6 +120,49 @@ async function getUserFavorites(req, res) {
   }
 }
 
-module.exports = { addFavorite, removeFavorite, getUserFavorites };
+/**
+ * GET /favorites/details/:user_id
+ * Retorna os filmes e séries favoritados de um usuário com todos os seus detalhes
+ */
+async function getDetailedFavorites(req, res) {
+  const { user_id } = req.params;
+
+  if (!user_id) {
+    return res.status(400).json({ error: 'ID do usuário é obrigatório.' });
+  }
+
+  try {
+    const moviesQuery = `
+      SELECT mv.* FROM "favorites" fav
+      JOIN "vw_show_movies_data" mv ON fav.movie_id = mv.id_filme
+      WHERE fav.user_id = $1
+    `;
+    const seriesQuery = `
+      SELECT ser.* FROM "favorites" fav
+      JOIN "vw_show_series_data" ser ON fav.serie_id = ser.serie_id
+      WHERE fav.user_id = $1
+    `;
+
+    const moviesResult = await pool.query(moviesQuery, [Number(user_id)]);
+    const seriesResult = await pool.query(seriesQuery, [Number(user_id)]);
+
+    const { getMediaManifest } = require('../utils/manifest');
+    const movieManifest = getMediaManifest('movies');
+    
+    const movies = moviesResult.rows.map(row => ({
+      ...row,
+      media_path: movieManifest[String(row.id_filme)] || null
+    }));
+
+    return res.status(200).json({
+      movies,
+      series: seriesResult.rows
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { addFavorite, removeFavorite, getUserFavorites, getDetailedFavorites };
 
 

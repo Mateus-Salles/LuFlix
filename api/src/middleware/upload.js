@@ -7,7 +7,9 @@ const movieUploadDir = path.join(uploadRoot, "movies");
 const episodeUploadDir = path.join(uploadRoot, "episodes");
 const chunkUploadDir = path.join(uploadRoot, "chunks");
 
-for (const dir of [uploadRoot, movieUploadDir, episodeUploadDir, chunkUploadDir]) {
+const seriesUploadDir = path.join(uploadRoot, "series");
+
+for (const dir of [uploadRoot, movieUploadDir, episodeUploadDir, chunkUploadDir, seriesUploadDir]) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -15,7 +17,12 @@ for (const dir of [uploadRoot, movieUploadDir, episodeUploadDir, chunkUploadDir]
 
 function storageForFolder(folder) {
   return multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, folder),
+    destination: (_req, file, cb) => {
+      if (file.fieldname === "serie_thumb") {
+        return cb(null, seriesUploadDir);
+      }
+      cb(null, folder);
+    },
     filename: (_req, file, cb) => {
       const timestamp = Date.now();
       const safeName = file.originalname
@@ -27,8 +34,11 @@ function storageForFolder(folder) {
 }
 
 function mediaFileFilter(req, file, cb) {
-  if (!file.mimetype.startsWith("video/")) {
-    return cb(new Error("Apenas arquivos de vídeo são permitidos."), false);
+  if (file.fieldname === "media" && !file.mimetype.startsWith("video/")) {
+    return cb(new Error("Apenas arquivos de vídeo são permitidos para mídia."), false);
+  }
+  if ((file.fieldname === "thumb" || file.fieldname === "serie_thumb") && !file.mimetype.startsWith("image/")) {
+    return cb(new Error("Apenas arquivos de imagem são permitidos para miniaturas."), false);
   }
   cb(null, true);
 }
@@ -46,12 +56,19 @@ function optionalUpload(uploadMiddleware) {
 const uploadMovie = multer({
   storage: storageForFolder(movieUploadDir),
   fileFilter: mediaFileFilter,
-}).single("media");
+}).fields([
+  { name: "media", maxCount: 1 },
+  { name: "thumb", maxCount: 1 }
+]);
 
 const uploadEpisode = multer({
   storage: storageForFolder(episodeUploadDir),
   fileFilter: mediaFileFilter,
-}).single("media");
+}).fields([
+  { name: "media", maxCount: 1 },
+  { name: "thumb", maxCount: 1 },
+  { name: "serie_thumb", maxCount: 1 }
+]);
 
 const uploadChunk = multer({
   storage: multer.diskStorage({

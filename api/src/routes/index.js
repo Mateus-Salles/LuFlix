@@ -1,7 +1,7 @@
 const { Router } = require('express');
-const { insertReview }      = require('../controllers/reviews.controller');
-const { addFavorite, removeFavorite, getUserFavorites } = require('../controllers/favorites.controller');
-const { addToWatchHistory } = require('../controllers/history.controller');
+const { insertReview, getReviews } = require('../controllers/reviews.controller');
+const { addFavorite, removeFavorite, getUserFavorites, getDetailedFavorites } = require('../controllers/favorites.controller');
+const { addToWatchHistory, getWatchHistory } = require('../controllers/history.controller');
 const { getMovies, getSeries, getSeasons, getEpisodes } = require('../controllers/views.controller');
 
 const usersRouter   = require('./users.routes');
@@ -21,14 +21,17 @@ router.use('/catalog', catalogRouter);
 
 // ── Reviews
 router.post('/reviews', insertReview);
+router.get('/reviews', getReviews);
 
 // ── Favoritos
 router.post('/favorites',   addFavorite);
 router.delete('/favorites', removeFavorite);
+router.get('/favorites/details/:user_id', getDetailedFavorites);
 router.get('/favorites/:user_id', getUserFavorites);
 
 // ── Histórico de visualização
 router.post('/history', addToWatchHistory);
+router.get('/history/:user_id', getWatchHistory);
 
 // ── Views (consultas)
 router.get('/views/movies',   getMovies);

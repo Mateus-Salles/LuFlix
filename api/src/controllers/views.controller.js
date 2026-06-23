@@ -42,12 +42,26 @@ async function getMovies(req, res) {
   try {
     const result = await pool.query(query, params);
     
-    // Mesclar media_path do manifesto
+    // Mesclar media_path e thumb_path do manifesto
     const manifest = getMediaManifest('movies');
-    const rows = result.rows.map(row => ({
-      ...row,
-      media_path: manifest[String(row.id_filme)] || null
-    }));
+    const rows = result.rows.map(row => {
+      const entry = manifest[String(row.id_filme)];
+      let media_path = null;
+      let thumb_path = null;
+      if (entry) {
+        if (typeof entry === 'object') {
+          media_path = entry.media_path || null;
+          thumb_path = entry.thumb_path || null;
+        } else {
+          media_path = entry;
+        }
+      }
+      return {
+        ...row,
+        media_path,
+        thumb_path
+      };
+    });
 
     return res.status(200).json({ total: result.rowCount, data: rows });
   } catch (err) {
@@ -95,7 +109,26 @@ async function getSeries(req, res) {
 
   try {
     const result = await pool.query(query, params);
-    return res.status(200).json({ total: result.rowCount, data: result.rows });
+    
+    // Mesclar thumb_path do manifesto de series
+    const manifest = getMediaManifest('series');
+    const rows = result.rows.map(row => {
+      const entry = manifest[String(row.serie_id)];
+      let thumb_path = null;
+      if (entry) {
+        if (typeof entry === 'object') {
+          thumb_path = entry.thumb_path || null;
+        } else {
+          thumb_path = entry;
+        }
+      }
+      return {
+        ...row,
+        thumb_path
+      };
+    });
+
+    return res.status(200).json({ total: result.rowCount, data: rows });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -193,12 +226,26 @@ async function getEpisodes(req, res) {
   try {
     const result = await pool.query(query, params);
     
-    // Mesclar media_path do manifesto
+    // Mesclar media_path e thumb_path do manifesto
     const manifest = getMediaManifest('episodes');
-    const rows = result.rows.map(row => ({
-      ...row,
-      media_path: manifest[String(row.episode_id)] || null
-    }));
+    const rows = result.rows.map(row => {
+      const entry = manifest[String(row.episode_id)];
+      let media_path = null;
+      let thumb_path = null;
+      if (entry) {
+        if (typeof entry === 'object') {
+          media_path = entry.media_path || null;
+          thumb_path = entry.thumb_path || null;
+        } else {
+          media_path = entry;
+        }
+      }
+      return {
+        ...row,
+        media_path,
+        thumb_path
+      };
+    });
 
     return res.status(200).json({ total: result.rowCount, data: rows });
   } catch (err) {

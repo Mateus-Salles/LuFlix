@@ -62,6 +62,8 @@ async function insertMovie(req, res) {
     synopsis,
     duration,
     media_path,
+    thumb_path: rawThumbPath,
+    extracted_thumb_path,
   } = req.body;
 
   const directors_id = normalizeIds(rawDirectorsId).map(Number);
@@ -90,7 +92,10 @@ async function insertMovie(req, res) {
     );
   }
 
-  if (!req.file && !media_path) {
+  const mediaFile = req.files && req.files['media'] ? req.files['media'][0] : null;
+  const thumbFile = req.files && req.files['thumb'] ? req.files['thumb'][0] : null;
+
+  if (!mediaFile && !media_path) {
     return badRequest(
       res,
       'Arquivo de mídia obrigatório: envie o campo "media" ou envie "media_path".',
@@ -98,20 +103,35 @@ async function insertMovie(req, res) {
   }
 
   try {
-    if (req.file) {
-      const originalPath = req.file.path;
+    let finalPlaylistPath = '';
+    if (mediaFile) {
+      const originalPath = mediaFile.path;
       const ext = path.extname(originalPath);
       const outputDirName = `${path.basename(originalPath, ext)}-hls`;
       const outputDir = path.join(path.dirname(originalPath), outputDirName);
-      const playlistPath = path.join(outputDir, "index.m3u8");
+      finalPlaylistPath = path.join(outputDir, "index.m3u8");
+
+      // Frame extraction if no custom thumb is provided
+      if (!thumbFile && !extracted_thumb_path && !rawThumbPath) {
+        try {
+          if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+          }
+          const extractedPath = path.join(outputDir, "thumb.jpg");
+          await extractMiddleFrame(originalPath, extractedPath);
+          req.body.extracted_thumb_path = getRelativeMediaPath(extractedPath);
+        } catch (errFrame) {
+          console.error("[Movie] Erro ao extrair frame do vídeo:", errFrame.message);
+        }
+      }
+
       console.log(`[Movie] Convertendo arquivo enviado diretamente para HLS: ${originalPath}`);
-      await convertToHLS(originalPath, playlistPath);
+      await convertToHLS(originalPath, finalPlaylistPath);
       try {
         fs.unlinkSync(originalPath);
       } catch (e) {
         console.warn(`[Movie] Erro ao deletar arquivo temporário original:`, e.message);
       }
-      req.file.path = playlistPath;
     }
 
     await pool.query(
@@ -138,22 +158,35 @@ async function insertMovie(req, res) {
       ],
     );
 
-    const mediaPath = req.file ? getRelativeMediaPath(req.file.path) : media_path;
+    const mediaPath = mediaFile ? getRelativeMediaPath(finalPlaylistPath) : media_path;
     
-    if (mediaPath) {
+    let resolvedThumbPath = null;
+    if (thumbFile) {
+      resolvedThumbPath = getRelativeMediaPath(thumbFile.path);
+    } else if (extracted_thumb_path) {
+      resolvedThumbPath = extracted_thumb_path;
+    } else if (req.body.extracted_thumb_path) {
+      resolvedThumbPath = req.body.extracted_thumb_path;
+    } else if (rawThumbPath) {
+      resolvedThumbPath = rawThumbPath;
+    }
+
+    if (mediaPath || resolvedThumbPath) {
       try {
         const movieResult = await pool.query('SELECT movie_id FROM movies WHERE title = $1', [title]);
         const insertedId = movieResult.rows[0]?.movie_id;
         if (insertedId) {
-          setMediaPath('movies', insertedId, mediaPath);
+          const { setMediaEntry } = require('../utils/manifest');
+          setMediaEntry('movies', insertedId, mediaPath, resolvedThumbPath);
         }
       } catch (errDb) {
-        console.error("Erro ao persistir media_path no manifesto de filme:", errDb.message);
+        console.error("Erro ao persistir media_path/thumb_path no manifesto de filme:", errDb.message);
       }
     }
 
     const response = { message: `Filme "${title}" inserido com sucesso.` };
     if (mediaPath) response.media_path = mediaPath;
+    if (resolvedThumbPath) response.thumb_path = resolvedThumbPath;
 
     return res.status(201).json(response);
   } catch (err) {
@@ -513,6 +546,9 @@ async function insertEpisode(req, res) {
     serie_synopsis = null,
     season_number,
     media_path,
+    thumb_path: rawThumbPath,
+    extracted_thumb_path,
+    serie_thumb_path,
   } = req.body;
 
   const directors_id = normalizeIds(rawDirectorsId).map(Number);
@@ -521,7 +557,7 @@ async function insertEpisode(req, res) {
   const numericDuration = Number(duration);
   const numericSeasonNumber = Number(season_number);
   const numericSerieId =
-    serie_id === null || serie_id === undefined ? null : Number(serie_id);
+    serie_id === null || serie_id === undefined || serie_id === "" ? null : Number(serie_id);
 
   if (
     !isPositiveInteger(numericReleaseYear) ||
@@ -545,7 +581,11 @@ async function insertEpisode(req, res) {
     );
   }
 
-  if (!req.file && !media_path) {
+  const mediaFile = req.files && req.files['media'] ? req.files['media'][0] : null;
+  const thumbFile = req.files && req.files['thumb'] ? req.files['thumb'][0] : null;
+  const serieThumbFile = req.files && req.files['serie_thumb'] ? req.files['serie_thumb'][0] : null;
+
+  if (!mediaFile && !media_path) {
     return badRequest(
       res,
       'Arquivo de mídia obrigatório: envie o campo "media" ou envie "media_path".',
@@ -566,21 +606,44 @@ async function insertEpisode(req, res) {
     );
   }
 
+  // Validate that series thumbnail is provided for a new series
+  if (numericSerieId === null && !serieThumbFile && !serie_thumb_path) {
+    return badRequest(
+      res,
+      "A imagem de miniatura da série é obrigatória para novas séries.",
+    );
+  }
+
   try {
-    if (req.file) {
-      const originalPath = req.file.path;
+    let finalPlaylistPath = '';
+    if (mediaFile) {
+      const originalPath = mediaFile.path;
       const ext = path.extname(originalPath);
       const outputDirName = `${path.basename(originalPath, ext)}-hls`;
       const outputDir = path.join(path.dirname(originalPath), outputDirName);
-      const playlistPath = path.join(outputDir, "index.m3u8");
+      finalPlaylistPath = path.join(outputDir, "index.m3u8");
+
+      // Extract middle frame as thumbnail fallback
+      if (!thumbFile && !extracted_thumb_path && !rawThumbPath) {
+        try {
+          if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+          }
+          const extractedPath = path.join(outputDir, "thumb.jpg");
+          await extractMiddleFrame(originalPath, extractedPath);
+          req.body.extracted_thumb_path = getRelativeMediaPath(extractedPath);
+        } catch (errFrame) {
+          console.error("[Episode] Erro ao extrair frame do vídeo:", errFrame.message);
+        }
+      }
+
       console.log(`[Episode] Convertendo arquivo enviado diretamente para HLS: ${originalPath}`);
-      await convertToHLS(originalPath, playlistPath);
+      await convertToHLS(originalPath, finalPlaylistPath);
       try {
         fs.unlinkSync(originalPath);
       } catch (e) {
         console.warn(`[Episode] Erro ao deletar arquivo temporário original:`, e.message);
       }
-      req.file.path = playlistPath;
     }
 
     await pool.query(
@@ -605,7 +668,7 @@ async function insertEpisode(req, res) {
         directors_id,
         number_rating,
         rating,
-        serie_id,
+        numericSerieId,
         duration,
         episode_title,
         episode_synopsis,
@@ -615,9 +678,40 @@ async function insertEpisode(req, res) {
       ],
     );
 
-    const mediaPath = req.file ? getRelativeMediaPath(req.file.path) : media_path;
+    const { setMediaEntry } = require('../utils/manifest');
+
+    // If new series was created, set series thumbnail in manifest
+    if (numericSerieId === null) {
+      try {
+        const seriesResult = await pool.query(
+          'SELECT serie_id FROM series WHERE title = $1 ORDER BY serie_id DESC LIMIT 1',
+          [serie_title]
+        );
+        const insertedSerieId = seriesResult.rows[0]?.serie_id;
+        const resolvedSerieThumbPath = serieThumbFile ? getRelativeMediaPath(serieThumbFile.path) : serie_thumb_path;
+        if (insertedSerieId && resolvedSerieThumbPath) {
+          setMediaEntry('series', insertedSerieId, null, resolvedSerieThumbPath);
+        }
+      } catch (errSerDb) {
+        console.error("Erro ao persistir miniatura no manifesto de série:", errSerDb.message);
+      }
+    }
+
+    // Set episode media and thumbnail in manifest
+    const mediaPath = mediaFile ? getRelativeMediaPath(finalPlaylistPath) : media_path;
     
-    if (mediaPath) {
+    let resolvedThumbPath = null;
+    if (thumbFile) {
+      resolvedThumbPath = getRelativeMediaPath(thumbFile.path);
+    } else if (extracted_thumb_path) {
+      resolvedThumbPath = extracted_thumb_path;
+    } else if (req.body.extracted_thumb_path) {
+      resolvedThumbPath = req.body.extracted_thumb_path;
+    } else if (rawThumbPath) {
+      resolvedThumbPath = rawThumbPath;
+    }
+
+    if (mediaPath || resolvedThumbPath) {
       try {
         const epResult = await pool.query(
           'SELECT episode_id FROM episodes WHERE title = $1 ORDER BY episode_id DESC LIMIT 1',
@@ -625,10 +719,10 @@ async function insertEpisode(req, res) {
         );
         const insertedId = epResult.rows[0]?.episode_id;
         if (insertedId) {
-          setMediaPath('episodes', insertedId, mediaPath);
+          setMediaEntry('episodes', insertedId, mediaPath, resolvedThumbPath);
         }
       } catch (errDb) {
-        console.error("Erro ao persistir media_path no manifesto de episódio:", errDb.message);
+        console.error("Erro ao persistir media_path/thumb_path no manifesto de episódio:", errDb.message);
       }
     }
 
@@ -636,6 +730,7 @@ async function insertEpisode(req, res) {
       message: `Episódio "${episode_title}" inserido com sucesso.`,
     };
     if (mediaPath) response.media_path = mediaPath;
+    if (resolvedThumbPath) response.thumb_path = resolvedThumbPath;
 
     return res.status(201).json(response);
   } catch (err) {
@@ -822,6 +917,63 @@ function getFFmpegPath() {
   return 'ffmpeg';
 }
 
+function getFFprobePath() {
+  const ffmpeg = getFFmpegPath();
+  if (ffmpeg.includes('ffmpeg.exe')) {
+    const unquoted = ffmpeg.replace(/^"|"$/g, '');
+    const ffprobe = unquoted.replace('ffmpeg.exe', 'ffprobe.exe');
+    return `"${ffprobe}"`;
+  }
+  return 'ffprobe';
+}
+
+function getVideoDuration(videoPath) {
+  return new Promise((resolve) => {
+    const ffprobe = getFFprobePath();
+    const safePath = videoPath.replace(/\\/g, "/");
+    const cmd = `${ffprobe} -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${safePath}"`;
+    console.log(`[FFprobe] Buscando duração do vídeo: ${cmd}`);
+    exec(cmd, (err, stdout, stderr) => {
+      if (err) {
+        console.warn(`[FFprobe] Erro ao obter duração:`, err.message);
+        resolve(0);
+      } else {
+        const duration = parseFloat(stdout.trim());
+        resolve(isNaN(duration) ? 0 : duration);
+      }
+    });
+  });
+}
+
+function extractMiddleFrame(videoPath, outputImagePath) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const duration = await getVideoDuration(videoPath);
+      const middleTime = duration > 0 ? duration / 2 : 1;
+      const ffmpeg = getFFmpegPath();
+      const safeVideoPath = videoPath.replace(/\\/g, "/");
+      const safeOutputPath = outputImagePath.replace(/\\/g, "/");
+      
+      const cmd = `${ffmpeg} -y -ss ${middleTime} -i "${safeVideoPath}" -vframes 1 -q:v 2 "${safeOutputPath}"`;
+      console.log(`[FFmpeg] Extraindo frame do meio (tempo: ${middleTime}s): ${cmd}`);
+      
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          console.error(`[FFmpeg] Falha ao extrair frame. Erro:`, err.message);
+          // Don't completely fail, but log it
+          resolve();
+        } else {
+          console.log(`[FFmpeg] Frame extraído com sucesso em: ${outputImagePath}`);
+          resolve();
+        }
+      });
+    } catch (e) {
+      console.error(`[FFmpeg] Exceção durante extração de frame:`, e.message);
+      resolve();
+    }
+  });
+}
+
 function convertToHLS(inputPath, outputPlaylistPath) {
   return new Promise((resolve, reject) => {
     const ffmpeg = getFFmpegPath();
@@ -930,6 +1082,15 @@ async function handleUploadChunk(req, res) {
       console.log(`[Upload] Iniciando conversão HLS...`);
       await convertToHLS(tempMergedPath, finalPlaylistPath);
 
+      let extracted_thumb_path = null;
+      try {
+        const thumbOutPath = path.join(outputDir, "thumb.jpg");
+        await extractMiddleFrame(tempMergedPath, thumbOutPath);
+        extracted_thumb_path = getRelativeMediaPath(thumbOutPath);
+      } catch (errFrame) {
+        console.error("[Upload] Erro ao extrair frame de miniatura:", errFrame.message);
+      }
+
       try {
         if (fs.existsSync(tempMergedPath)) {
           fs.unlinkSync(tempMergedPath);
@@ -943,7 +1104,8 @@ async function handleUploadChunk(req, res) {
       
       return res.status(200).json({
         status: "completed",
-        media_path
+        media_path,
+        extracted_thumb_path
       });
     }
 
@@ -973,4 +1135,9 @@ module.exports = {
   handleUploadChunk,
   compressVideo, // also export for use in main controllers
   convertToHLS,
+  isPositiveInteger,
+  normalizeIds,
+  getRelativeMediaPath,
+  getVideoDuration,
+  extractMiddleFrame,
 };
