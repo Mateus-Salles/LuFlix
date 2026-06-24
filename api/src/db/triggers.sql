@@ -49,22 +49,18 @@ DECLARE
     v_season_id INT;
     v_serie_id INT;
 BEGIN
-    -- Obter season_id do episódio atualizado
     SELECT season_id INTO v_season_id FROM "episodes" WHERE episode_id = NEW.episode_id;
     
     IF v_season_id IS NOT NULL THEN
-        -- Atualizar rating da temporada (média dos episódios)
         SELECT ROUND(AVG(rating), 1) INTO v_avg_review 
         FROM "episodes" 
         WHERE season_id = v_season_id;
         
         UPDATE "seasons" SET rating = v_avg_review WHERE season_id = v_season_id;
         
-        -- Obter serie_id da temporada
         SELECT serie_id INTO v_serie_id FROM "seasons" WHERE season_id = v_season_id;
         
         IF v_serie_id IS NOT NULL THEN
-            -- Atualizar rating da série (média das temporadas)
             SELECT ROUND(AVG(rating), 1) INTO v_avg_review 
             FROM "seasons" 
             WHERE serie_id = v_serie_id;

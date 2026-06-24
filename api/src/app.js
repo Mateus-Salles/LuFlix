@@ -7,11 +7,11 @@ const cors = require('cors')
 
 const app = express();
 
-const corsOptions = {
-  origin: ['http://localhost:5500', 'http://127.0.0.1:5500'], // Libera exatamente a porta do seu front-end
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-};
+//const corsOptions = {
+//  origin: ['http://localhost:5500', 'http://127.0.0.1:5500'], // Libera exatamente a porta do seu front-end
+//  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+//  allowedHeaders: ['Content-Type', 'Authorization']
+//};
 
 app.use(cors());
 app.use(express.json());
